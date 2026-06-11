@@ -143,6 +143,7 @@
     <div id="main-role-pill"></div>
   </div>
   <div id="dead-notice" class="dead-notice" style="display:none">You have been eliminated. Keep completing tasks — they still count.</div>
+  <div id="paused-notice" style="display:none; background:rgba(224,151,42,0.12); border:0.5px solid rgba(224,151,42,0.4); border-radius:var(--radius); padding:12px 16px; font-size:13px; color:var(--amber); margin-bottom:16px; text-align:center; font-weight:600;">⏸ Game paused by admin</div>
   <div class="tab-bar">
     <div class="tab active" onclick="switchTab('tasks')">Tasks</div>
     <div class="tab" onclick="switchTab('players')">Players</div>
@@ -180,6 +181,7 @@
     </div>
     <span class="pill pill-imp">Impostor</span>
   </div>
+  <div id="imp-paused-notice" style="display:none; background:rgba(224,151,42,0.12); border:0.5px solid rgba(224,151,42,0.4); border-radius:var(--radius); padding:12px 16px; font-size:13px; color:var(--amber); margin-bottom:16px; text-align:center; font-weight:600;">⏸ Game paused by admin</div>
   <div class="tab-bar">
     <div class="tab active" onclick="switchImpTab('kill')">Kill</div>
     <div class="tab" onclick="switchImpTab('sabotage')">Sabotage</div>
@@ -298,6 +300,10 @@
     <div id="admin-tab-game" style="display:none">
       <div class="label">Current game state</div>
       <div class="card" id="admin-game-state"></div>
+      <div class="spacer"></div>
+      <div id="admin-pause-btn-wrap">
+        <button class="btn btn-amber" id="btn-pause-game" onclick="togglePauseGame()">Pause game</button>
+      </div>
       <div class="spacer"></div>
       <button class="btn btn-danger" onclick="resetGame()">Reset game</button>
     </div>
@@ -686,24 +692,27 @@
     const doneTasks = allTasks.filter(t => t.done).length;
     const progress = allTasks.length ? Math.round((doneTasks / allTasks.length) * 100) : 0;
 
+    const isPaused = !!gameState.paused;
     if (myRole === 'crewmate') {
       document.getElementById('dead-notice').style.display = !me.alive ? 'block' : 'none';
+      document.getElementById('paused-notice').style.display = isPaused ? 'block' : 'none';
       document.getElementById('progress-fill').style.width = progress + '%';
       renderTasks(me);
       renderPlayerList('players-alive', alive);
       renderPlayerList('players-dead', dead);
-      document.getElementById('btn-emergency').disabled = !!gameState.meetingActive || !!gameState.votingActive;
+      document.getElementById('btn-emergency').disabled = !!gameState.meetingActive || !!gameState.votingActive || isPaused;
       document.getElementById('tab-vote-btn').style.display = 'none';
     } else {
+      document.getElementById('imp-paused-notice').style.display = isPaused ? 'block' : 'none';
       renderKillList(alive.filter(p => p.role !== 'impostor'));
       renderPlayerList('imp-players-alive', alive);
       renderPlayerList('imp-players-dead', dead);
       renderCooldown();
       const sabotageUsed = gameState.sabotageUsed;
       document.getElementById('sabotage-used-notice').style.display = sabotageUsed ? 'block' : 'none';
-      document.getElementById('btn-sabotage').disabled = sabotageUsed;
+      document.getElementById('btn-sabotage').disabled = sabotageUsed || isPaused;
       document.getElementById('imp-vote-tab-btn').style.display = 'none';
-      document.getElementById('imp-btn-emergency').disabled = !!gameState.meetingActive || !!gameState.votingActive;
+      document.getElementById('imp-btn-emergency').disabled = !!gameState.meetingActive || !!gameState.votingActive || isPaused;
     }
 
     if (gameState.sabotageMessage && gameState.sabotageVisible) {
@@ -1008,6 +1017,7 @@
 
   window.confirmKill = async function() {
     if (!killTarget || !killPhotoData) return;
+    if (gameState.paused) { showToast('Game is paused'); return; }
     const btnConfirm = document.getElementById('btn-confirm-kill');
     btnConfirm.disabled = true;
     btnConfirm.textContent = 'Verifying photo...';
@@ -1210,8 +1220,14 @@
     if (!snap.exists()) { el.innerHTML = '<div style="color:var(--muted); font-size:13px;">No game data.</div>'; return; }
     const g = snap.val();
     const players = g.players || {};
+    const isPaused = g.paused || false;
+    const pauseBtn = document.getElementById('btn-pause-game');
+    if (pauseBtn) {
+      pauseBtn.textContent = isPaused ? 'Resume game' : 'Pause game';
+      pauseBtn.className = isPaused ? 'btn btn-success' : 'btn btn-amber';
+    }
     el.innerHTML = `
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:14px;"><span>State</span><span>${g.state||'lobby'}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:14px;"><span>State</span><span>${g.paused?'⏸ paused':g.state||'lobby'}</span></div>
       <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:14px;"><span>Players</span><span>${Object.keys(players).length}</span></div>
       <div style="display:flex;justify-content:space-between;padding:8px 0;font-size:14px;"><span>Voting</span><span>${g.votingActive?'Yes':'No'}</span></div>
     `;
@@ -1264,6 +1280,14 @@
     await remove(ref(db, MISSIONS_REF+'/'+id));
     showToast('Mission deleted');
     loadAdminMissions();
+  }
+
+  window.togglePauseGame = async function() {
+    const snap = await get(ref(db, GAME_REF + '/paused'));
+    const isPaused = snap.exists() ? snap.val() : false;
+    await set(ref(db, GAME_REF + '/paused'), !isPaused);
+    showToast(!isPaused ? 'Game paused' : 'Game resumed');
+    loadAdminGameState();
   }
 
   window.resetGame = async function() {
