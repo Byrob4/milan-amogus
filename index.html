@@ -502,11 +502,15 @@
 <!-- ADMIN FLOAT OVERLAY -->
 <div class="overlay" id="overlay-admin-float">
   <div class="overlay-box" style="max-height:85vh; overflow-y:auto;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <h3>Admin controls</h3>
       <button onclick="closeOverlay('overlay-admin-float')" style="background:none; border:none; font-size:20px; cursor:pointer; color:var(--muted);">×</button>
     </div>
-
+    <div class="tab-bar" style="margin-bottom:12px;">
+      <div class="tab active" onclick="switchAdminFloatTab('controls')">Controls</div>
+      <div class="tab" onclick="switchAdminFloatTab('missions')">Missions</div>
+    </div>
+    <div id="admin-float-tab-controls">
     <div id="admin-float-reset-wrap" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="btn btn-amber" id="admin-float-pause" onclick="togglePauseGame()">Pause game</button>
       <button class="btn btn-danger" onclick="adminResetGame()">Reset game</button>
@@ -566,6 +570,15 @@
     <div id="admin-float-reports" style="display:none">
       <div class="label" style="color:var(--imp);">⚠ Reports</div>
       <div id="admin-float-reports-list"></div>
+    </div>
+    </div><!-- end admin-float-tab-controls -->
+
+    <div id="admin-float-tab-missions" style="display:none">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div class="label" style="margin:0">Missions</div>
+        <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddMission()">+ Add</button>
+      </div>
+      <div id="admin-float-missions-list"></div>
     </div>
   </div>
 </div>
@@ -2139,6 +2152,40 @@
   }
 
   window.goAdmin = function() { showScreen('screen-admin'); }
+
+  window.switchAdminFloatTab = function(tab) {
+    ['controls','missions'].forEach(t => {
+      const el = document.getElementById('admin-float-tab-'+t);
+      if (el) el.style.display = t===tab ? 'block' : 'none';
+      const btn = document.querySelector(`[onclick="switchAdminFloatTab('${t}')"]`);
+      if (btn) btn.classList.toggle('active', t===tab);
+    });
+    if (tab === 'missions') loadAdminFloatMissions();
+  }
+
+  async function loadAdminFloatMissions() {
+    await loadMissions();
+    const el = document.getElementById('admin-float-missions-list');
+    if (!el) return;
+    if (!allMissions.length) { el.innerHTML = '<div style="color:var(--muted); font-size:13px;">No missions yet.</div>'; return; }
+    el.innerHTML = allMissions.map(m => `
+      <div style="background:var(--bg3); border-radius:var(--radius-sm); padding:10px; margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+          <div style="flex:1;">
+            <div style="font-size:12px; color:var(--muted);">${m.location} · ${m.proofType === 'audio' ? '🎙 audio' : m.proofType}</div>
+            <div style="font-size:13px; margin-top:2px;">${m.description}</div>
+            ${m.proofType==='code' ? `<div style="font-size:11px; color:var(--amber); margin-top:2px;">Code: ${m.code}</div>` : ''}
+          </div>
+          <button onclick="deleteMissionAndRefresh('${m.id}')" style="background:none; border:none; color:var(--imp); cursor:pointer; font-size:18px; padding:0 0 0 8px;">×</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  window.deleteMissionAndRefresh = async function(id) {
+    await deleteMission(id);
+    loadAdminFloatMissions();
+  }
 
   window.adminLogin = async function() {
     const pwd = document.getElementById('admin-password').value;
