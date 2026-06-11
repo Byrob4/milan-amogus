@@ -762,6 +762,12 @@
       goToMainScreen();
       return;
     }
+    if (!meeting && !voting && currentPhase === 'review') {
+      return; // Stay on review screen until dismissed
+    }
+    if (!meeting && !voting && currentPhase === 'recap') {
+      return; // Stay on recap screen until dismissed
+    }
     if (currentPhase === 'playing') renderGame();
     if (currentPhase === 'voting') renderVoting();
   }
@@ -789,10 +795,20 @@
       if (rem <= 0) {
         clearInterval(meetingTimerInterval);
         if (gameState.meetingActive) {
-          update(ref(db), {
-            [GAME_REF+'/meetingActive']: false,
-            [GAME_REF+'/votingActive']: true,
-            [GAME_REF+'/voteEndTime']: Date.now() + (settings.voteDuration||60)*1000
+          // Always check Firebase fresh for contested kills
+          get(ref(db, GAME_REF+'/pendingEvidence')).then(snap => {
+            if (snap.exists() && Object.keys(snap.val()).length > 0) {
+              // There are contested kills to review — show photo review
+              currentPhase = 'review';
+              showPhotoReview();
+            } else {
+              // No contested kills — go straight to vote
+              update(ref(db), {
+                [GAME_REF+'/meetingActive']: false,
+                [GAME_REF+'/votingActive']: true,
+                [GAME_REF+'/voteEndTime']: Date.now() + (settings.voteDuration||60)*1000
+              });
+            }
           });
         }
       }
@@ -1151,7 +1167,8 @@
 
   function showPhotoReview() {
     showScreen('screen-photo-review');
-    const evidence = gameState.pendingEvidence || {};
+    // Re-read fresh from gameState (kept up to date by Firebase listener)
+    const evidence = gameState?.pendingEvidence || {};
     const entries = Object.entries(evidence);
     const el = document.getElementById('review-list');
     if (!entries.length) {
@@ -1219,6 +1236,8 @@
     updates[GAME_REF+'/meetingActive'] = false;
     updates[GAME_REF+'/votingActive'] = true;
     updates[GAME_REF+'/voteEndTime'] = Date.now() + (settings.voteDuration||60)*1000;
+    updates[GAME_REF+'/pendingEvidence'] = null;
+    updates[GAME_REF+'/photoReviews'] = null;
     await update(ref(db), updates);
     currentPhase = 'voting';
     showVotingScreen();
