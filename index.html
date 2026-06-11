@@ -84,7 +84,7 @@
 <body>
 
 <!-- JOIN -->
-<div class="screen active" id="screen-join">
+<div class="screen" id="screen-join">
   <div class="logo">Among Us · City · v3</div>
   <h1>Enter your name</h1>
   <div class="spacer-lg"></div>
@@ -109,6 +109,13 @@
   <button class="btn btn-primary" id="btn-start" onclick="startGame()" style="display:none">Start game</button>
   <div class="spacer"></div>
   <button class="btn btn-ghost" onclick="leaveGame()">Leave</button>
+</div>
+
+<!-- RECONNECTING -->
+<div class="screen active" id="screen-reconnecting" style="justify-content:center; align-items:center; text-align:center;">
+  <div style="font-size:48px; margin-bottom:16px;">🔄</div>
+  <h2>Reconnecting...</h2>
+  <div style="color:var(--muted); margin-top:8px; font-size:14px;">Restoring your session</div>
 </div>
 
 <!-- ROLE REVEAL -->
@@ -153,6 +160,15 @@
     <div id="main-role-pill"></div>
   </div>
   <div id="dead-notice" class="dead-notice" style="display:none">You have been eliminated. Keep completing tasks — they still count.</div>
+  <div id="kill-contest-notice" style="display:none; background:rgba(226,75,74,0.12); border:1px solid rgba(226,75,74,0.5); border-radius:var(--radius); padding:16px; margin-bottom:16px; text-align:center;">
+    <div style="font-size:15px; font-weight:600; color:var(--imp); margin-bottom:8px;">You have been killed!</div>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">Review the photo. Contest within <span id="contest-timer" style="font-weight:600; color:var(--text);">30s</span> if it's invalid.</div>
+    <div id="kill-contest-photo" style="margin-bottom:12px;"></div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+      <button class="btn btn-ghost" onclick="acceptKill()" style="font-size:13px; padding:8px;">Accept</button>
+      <button class="btn btn-danger" onclick="contestKill()" style="font-size:13px; padding:8px;">Contest</button>
+    </div>
+  </div>
   <div id="paused-notice" style="display:none; background:rgba(224,151,42,0.12); border:0.5px solid rgba(224,151,42,0.4); border-radius:var(--radius); padding:12px 16px; font-size:13px; color:var(--amber); margin-bottom:16px; text-align:center; font-weight:600;">⏸ Game paused by admin</div>
   <div class="tab-bar">
     <div class="tab active" onclick="switchTab('tasks')">Tasks</div>
@@ -519,17 +535,70 @@
     await loadMissions();
   }
 
+  async function tryAutoReconnect() {
+    const savedId = localStorage.getItem('amogus_player_id');
+    const savedName = localStorage.getItem('amogus_player_name');
+    if (!savedId || !savedName) return false;
+    showScreen('screen-reconnecting');
+    await loadSettings();
+    await loadMissions();
+    const snap = await get(ref(db, GAME_REF));
+    if (!snap.exists()) return false;
+    const g = snap.val();
+    const player = g.players?.[savedId];
+    if (!player) return false;
+    // Player exists in Firebase — reconnect
+    myPlayerId = savedId;
+    myName = savedName;
+    myRole = player.role;
+    roleRevealed = true;
+    gameState = g;
+    if (g.state === 'lobby') {
+      showScreen('screen-lobby');
+      listenLobby();
+      return true;
+    }
+    if (g.state === 'playing' && player.role) {
+      currentPhase = 'playing';
+      if (myRole === 'impostor') {
+        document.getElementById('imp-playername').textContent = myName;
+        showScreen('screen-impostor');
+      } else {
+        document.getElementById('main-playername').textContent = myName;
+        document.getElementById('main-role-pill').innerHTML = '<span class="pill pill-crew">Crewmate</span>';
+        showScreen('screen-main');
+      }
+      listenGame();
+      showToast('Reconnected!');
+      return true;
+    }
+    if (g.state === 'ended') {
+      showResult();
+      return true;
+    }
+    return false;
+  }
+
   window.joinGame = async function() {
     const name = document.getElementById('input-name').value.trim();
     if (!name) { showToast('Enter your name'); return; }
     myPlayerId = getPlayerId();
     myName = name;
+    localStorage.setItem('amogus_player_name', name);
     roleRevealed = false;
     await loadSettings();
     await loadMissions();
     const snap = await get(ref(db, GAME_REF + '/state'));
     const state = snap.exists() ? snap.val() : 'lobby';
-    if (state === 'playing') { showToast('A game is already in progress'); return; }
+    if (state === 'playing') {
+      // Check if this player is already in the game
+      const pSnap = await get(ref(db, GAME_REF + '/players/' + myPlayerId));
+      if (pSnap.exists()) {
+        const reconnected = await tryAutoReconnect();
+        if (reconnected) return;
+      }
+      showToast('A game is already in progress'); return;
+    }
     await set(ref(db, GAME_REF + '/players/' + myPlayerId), {
       name, alive: true, tasksCompleted: 0, joinedAt: Date.now(),
       color: PLAYER_COLORS[Math.floor(Math.random()*PLAYER_COLORS.length)]
@@ -538,6 +607,12 @@
     showScreen('screen-lobby');
     listenLobby();
   }
+
+  // Auto-reconnect on page load
+  window.addEventListener('load', async () => {
+    const reconnected = await tryAutoReconnect();
+    if (!reconnected) showScreen('screen-join');
+  });
 
   function listenLobby() {
     onValue(ref(db, GAME_REF), (snap) => {
@@ -748,6 +823,7 @@
       document.getElementById('sabotage-message').textContent = gameState.sabotageMessage;
       document.getElementById('sabotage-banner').style.display = 'block';
     }
+    if (myRole === 'crewmate') checkPendingKills();
   }
 
   function renderTasks(me) {
@@ -928,14 +1004,20 @@
     const g = snap.val();
     if (g.state === 'ended') return;
     const players = g.players || {};
-    const aliveCrew = Object.values(players).filter(p => p.alive && p.role !== 'impostor');
+    // Only count truly dead (not pending) crewmates
+    const aliveCrew = Object.values(players).filter(p => (p.alive || p.pendingKill) && p.role !== 'impostor');
+    const definitelyDeadCrew = Object.values(players).filter(p => !p.alive && !p.pendingKill && p.role !== 'impostor');
     const aliveImpostors = Object.values(players).filter(p => p.alive && p.role === 'impostor');
     const allTasks = Object.values(players).flatMap(p => Object.values(p.missions || {}));
     const allDone = allTasks.length > 0 && allTasks.every(t => t.done);
     if (aliveImpostors.length === 0) {
       await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'crewmates', [GAME_REF+'/endReason']: 'All impostors eliminated. Crewmates win!' });
     } else if (aliveCrew.length <= aliveImpostors.length) {
-      await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'impostor', [GAME_REF+'/endReason']: 'Impostors outnumber the crew. Impostor wins!' });
+      // Only end game if kills are resolved (not pending)
+      const hasPending = Object.values(players).some(p => p.pendingKill);
+      if (!hasPending) {
+        await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'impostor', [GAME_REF+'/endReason']: 'Impostors outnumber the crew. Impostor wins!' });
+      }
     } else if (allDone) {
       await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'crewmates', [GAME_REF+'/endReason']: 'All tasks completed. Crewmates win!' });
     }
@@ -1028,6 +1110,69 @@
     await update(ref(db), updates);
     currentPhase = 'voting';
     showVotingScreen();
+  }
+
+  let contestTimerInterval = null;
+
+  function checkPendingKills() {
+    if (!gameState || myRole !== 'crewmate') return;
+    const pending = gameState.pendingKills || {};
+    const myKill = Object.entries(pending).find(([id, k]) => k.victimId === myPlayerId && k.revealed && !k.resolved && !k.contested);
+    const notice = document.getElementById('kill-contest-notice');
+    if (!myKill) { if (notice) notice.style.display = 'none'; return; }
+    const [killId, killData] = myKill;
+    notice.style.display = 'block';
+    document.getElementById('kill-contest-photo').innerHTML = `<img src="${killData.photo}" style="width:100%; border-radius:8px;" />`;
+    // 30s contest window
+    let rem = 30;
+    if (contestTimerInterval) clearInterval(contestTimerInterval);
+    contestTimerInterval = setInterval(async () => {
+      rem--;
+      const el = document.getElementById('contest-timer');
+      if (el) el.textContent = rem + 's';
+      if (rem <= 0) {
+        clearInterval(contestTimerInterval);
+        await acceptKillById(killId);
+      }
+    }, 1000);
+    notice._killId = killId;
+  }
+
+  async function acceptKillById(killId) {
+    const notice = document.getElementById('kill-contest-notice');
+    if (notice) notice.style.display = 'none';
+    if (contestTimerInterval) clearInterval(contestTimerInterval);
+    await update(ref(db), {
+      [GAME_REF+'/pendingKills/'+killId+'/resolved']: true,
+      [GAME_REF+'/players/'+myPlayerId+'/alive']: false,
+      [GAME_REF+'/players/'+myPlayerId+'/pendingKill']: false
+    });
+    await push(ref(db, GAME_REF+'/evidence'), gameState.pendingKills[killId]);
+    checkWinConditions();
+  }
+
+  window.acceptKill = async function() {
+    const notice = document.getElementById('kill-contest-notice');
+    const killId = notice._killId;
+    if (!killId) return;
+    await acceptKillById(killId);
+  }
+
+  window.contestKill = async function() {
+    const notice = document.getElementById('kill-contest-notice');
+    const killId = notice._killId;
+    if (!killId) return;
+    notice.style.display = 'none';
+    if (contestTimerInterval) clearInterval(contestTimerInterval);
+    await update(ref(db), {
+      [GAME_REF+'/pendingKills/'+killId+'/contested']: true,
+      [GAME_REF+'/pendingKills/'+killId+'/resolved']: false
+    });
+    showToast('Kill contested — will be discussed at next meeting', 4000);
+    // Add to pending evidence for review
+    if (gameState.pendingKills && gameState.pendingKills[killId]) {
+      await push(ref(db, GAME_REF+'/pendingEvidence'), { ...gameState.pendingKills[killId], killId });
+    }
   }
 
   window.callEmergency = async function() {
@@ -1144,18 +1289,26 @@
     }
     closeOverlay('overlay-kill');
     const victimName = killTargetName || gameState.players[killTarget]?.name || 'Unknown';
+    const killData = {
+      victimId: killTarget, victimName, photo: killPhotoData,
+      killedAt: Date.now(), revealAt: Date.now() + 60000, contested: false, resolved: false
+    };
+    // Mark player as pending-dead immediately
     await update(ref(db), {
-      [GAME_REF+'/players/'+killTarget+'/alive']: false,
+      [GAME_REF+'/players/'+killTarget+'/pendingKill']: true,
       [GAME_REF+'/killCooldownUntil']: Date.now() + (settings.cooldown||120)*1000
     });
-    const killData = { victimId: killTarget, victimName, photo: killPhotoData, killedAt: Date.now() };
-    await push(ref(db, GAME_REF+'/evidence'), killData);
-    if (settings.photoReview === 1) {
-      await push(ref(db, GAME_REF+'/pendingEvidence'), killData);
-    }
+    const killRef = await push(ref(db, GAME_REF+'/pendingKills'), killData);
     killTarget = null; killPhotoData = null;
-    showToast('Kill confirmed');
-    checkWinConditions();
+    showToast('Kill initiated — victim will be notified in 60s');
+    // After 60s, reveal kill to victim
+    setTimeout(async () => {
+      const kSnap = await get(ref(db, GAME_REF+'/pendingKills/'+killRef.key));
+      if (!kSnap.exists()) return;
+      const k = kSnap.val();
+      if (k.resolved) return;
+      await update(ref(db, GAME_REF+'/pendingKills/'+killRef.key), { revealed: true });
+    }, 60000);
   }
 
   window.openProof = function(missionIdx) {
