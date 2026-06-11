@@ -121,6 +121,10 @@
   <div class="gap"></div>
   <button class="btn btn-primary" id="btn-start" onclick="startGame()" style="display:none">Start game (admin)</button>
   <div class="spacer"></div>
+  <div id="admin-lobby-controls" style="display:none">
+    <button class="btn btn-ghost" onclick="openLobbyAdminSettings()" style="margin-bottom:8px;">⚙ Game settings</button>
+    <div class="spacer"></div>
+  </div>
   <button class="btn btn-ghost" onclick="leaveGame()">Leave</button>
 </div>
 
@@ -478,7 +482,7 @@
       <button onclick="closeOverlay('overlay-admin-float')" style="background:none; border:none; font-size:20px; cursor:pointer; color:var(--muted);">×</button>
     </div>
 
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+    <div id="admin-float-reset-wrap" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="btn btn-amber" id="admin-float-pause" onclick="togglePauseGame()">Pause game</button>
       <button class="btn btn-danger" onclick="adminResetGame()">Reset game</button>
     </div>
@@ -522,9 +526,11 @@
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('killRevealDelay','admin-live-reveal-delay')">Set</button>
     </div>
 
+    <div id="admin-float-players-wrap">
     <div class="spacer"></div>
     <div class="label">Players</div>
     <div id="admin-float-players"></div>
+    </div>
     <div class="spacer"></div>
     <div id="admin-float-reports" style="display:none">
       <div class="label" style="color:var(--imp);">⚠ Reports</div>
@@ -775,7 +781,11 @@
       const statusEl = document.getElementById('lobby-status');
       if (statusEl) statusEl.textContent = `${plist.length} player${plist.length!==1?'s':''} in lobby`;
       const btnStart = document.getElementById('btn-start');
-      if (btnStart) btnStart.style.display = (isAdmin && plist.length >= 2) ? 'block' : 'none';
+      const minP = (settings.impostorCount || 1) + 2;
+      if (btnStart) btnStart.style.display = (isAdmin && plist.length >= minP) ? 'block' : 'none';
+      const adminLobby = document.getElementById('admin-lobby-controls');
+      if (adminLobby) adminLobby.style.display = isAdmin ? 'block' : 'none';
+      if (statusEl) statusEl.textContent = plist.length + ' player' + (plist.length!==1?'s':'') + ' in lobby (need ' + minP + ' to start)';
       if (gameState.state === 'playing' && !roleRevealed) {
         roleRevealed = true;
         myRole = gameState.players[myPlayerId]?.role;
@@ -791,7 +801,11 @@
     if (!snap.exists()) return;
     const players = snap.val();
     const ids = Object.keys(players);
-    if (ids.length < 2) { showToast('Need at least 2 players'); return; }
+    const minPlayers = (settings.impostorCount || 1) + 2;
+    if (ids.length < minPlayers) {
+      showToast('Need at least ' + minPlayers + ' players (' + (settings.impostorCount||1) + ' impostor' + ((settings.impostorCount||1)>1?'s':'') + ' + 2 crewmates)');
+      return;
+    }
     const impostorCount = Math.min(settings.impostorCount || 1, Math.floor(ids.length / 2));
     const shuffledIds = [...ids].sort(() => Math.random() - 0.5);
     const impostorIds = new Set(shuffledIds.slice(0, impostorCount));
@@ -1629,7 +1643,7 @@
     });
     const killRef = await push(ref(db, GAME_REF+'/pendingKills'), killData);
     killTarget = null; killPhotoData = null;
-    showToast('Kill initiated — victim will be notified in 60s');
+    showToast('Kill initiated — victim notified in ' + (settings.killRevealDelay||60) + 's');
     // After killRevealDelay, reveal kill to victim
     const revealDelay = (settings.killRevealDelay || 60) * 1000;
     setTimeout(async () => {
@@ -1921,6 +1935,13 @@
     document.getElementById('admin-live-emergency').value = settings.emergencyCooldown || 180;
     document.getElementById('admin-live-review').value = settings.reviewDuration || 30;
     document.getElementById('admin-live-reveal-delay').value = settings.killRevealDelay || 60;
+    // Show all sections (in-game context)
+    const pauseBtn = document.getElementById('admin-float-pause');
+    const resetWrap = document.getElementById('admin-float-reset-wrap');
+    const playersWrap = document.getElementById('admin-float-players-wrap');
+    if (pauseBtn) pauseBtn.style.display = '';
+    if (resetWrap) resetWrap.style.display = 'grid';
+    if (playersWrap) playersWrap.style.display = 'block';
     // Render player list with life controls
     const snap = await get(ref(db, GAME_REF+'/players'));
     const el = document.getElementById('admin-float-players');
@@ -2014,6 +2035,29 @@
     await remove(ref(db, GAME_REF));
     showToast('Game reset');
     loadAdminGameState();
+  }
+
+  window.openLobbyAdminSettings = async function() {
+    await loadSettings();
+    document.getElementById('admin-live-cooldown').value = settings.cooldown || 120;
+    document.getElementById('admin-live-meeting').value = settings.meetingDuration || 300;
+    document.getElementById('admin-live-vote').value = settings.voteDuration || 60;
+    document.getElementById('admin-live-emergency').value = settings.emergencyCooldown || 180;
+    document.getElementById('admin-live-review').value = settings.reviewDuration || 30;
+    document.getElementById('admin-live-reveal-delay').value = settings.killRevealDelay || 60;
+    // Show all sections (in-game context)
+    const pauseBtn = document.getElementById('admin-float-pause');
+    const resetWrap = document.getElementById('admin-float-reset-wrap');
+    const playersWrap = document.getElementById('admin-float-players-wrap');
+    if (pauseBtn) pauseBtn.style.display = '';
+    if (resetWrap) resetWrap.style.display = 'grid';
+    if (playersWrap) playersWrap.style.display = 'block';
+    // Hide pause and reset buttons in lobby context
+    document.getElementById('admin-float-pause').style.display = 'none';
+    document.getElementById('admin-float-reset-wrap').style.display = 'none';
+    document.getElementById('admin-float-players-wrap').style.display = 'none';
+    document.getElementById('admin-float-reports').style.display = 'none';
+    document.getElementById('overlay-admin-float').classList.add('active');
   }
 
   window.adminResetGame = async function() {
