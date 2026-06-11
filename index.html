@@ -573,6 +573,12 @@
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('killRevealDelay','admin-live-reveal-delay')">Set</button>
     </div>
 
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Reroll cooldown (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-reroll" style="flex:1;" min="10" max="300" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('rerollCooldown','admin-live-reroll')">Set</button>
+    </div>
+
     <div id="admin-float-players-wrap">
     <div class="spacer"></div>
     <div class="label">Players</div>
@@ -657,7 +663,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, adminPassword: ADMIN_PASSWORD_DEFAULT };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, adminPassword: ADMIN_PASSWORD_DEFAULT };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1174,10 +1180,46 @@
             <div style="font-weight:500;">${m.description}</div>
             <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : '🔢 Secret code required'}</div>
           </div>
-          ${m.done ? '<span style="color:var(--green); font-size:18px; flex-shrink:0;">✓</span>' : `<button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="openProof(${i})">Complete</button>`}
+          ${m.done ? '<span style="color:var(--green); font-size:18px; flex-shrink:0;">✓</span>' : `<div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;"><button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="openProof(${i})">Complete</button><button class="btn btn-ghost" style="width:auto; padding:5px 12px; font-size:11px;" onclick="rerollTask(${i})">🎲 Reroll</button></div>`}
         </div>
       </div>
     `).join('');
+  }
+
+  window.rerollTask = async function(missionIdx) {
+    const now = Date.now();
+    const cooldownUntil = gameState.players?.[myPlayerId]?.rerollCooldownUntil || 0;
+    if (now < cooldownUntil) {
+      const rem = Math.ceil((cooldownUntil - now) / 1000);
+      showToast('Reroll on cooldown — ' + rem + 's left', 3000);
+      return;
+    }
+    const me = gameState.players[myPlayerId];
+    const missions = Object.values(me.missions || {});
+    const missionKeys = Object.keys(me.missions || {});
+    const current = missions[missionIdx];
+    if (current.done) { showToast('Cannot reroll a completed task'); return; }
+    const loc = current.location;
+    // Find other missions in same location, not already assigned to this player, active
+    const myDescriptions = new Set(missions.map(m => m.description));
+    const candidates = allMissions.filter(m =>
+      m.active !== false &&
+      (m.location || '') === (loc || '') &&
+      !myDescriptions.has(m.description)
+    );
+    if (!candidates.length) {
+      showToast('No other missions available here', 3000);
+      return;
+    }
+    const replacement = candidates[Math.floor(Math.random() * candidates.length)];
+    const { id, ...rest } = replacement;
+    const newMission = { ...rest, done: false };
+    const missionKey = missionKeys[missionIdx];
+    await update(ref(db), {
+      [GAME_REF+'/players/'+myPlayerId+'/missions/'+missionKey]: newMission,
+      [GAME_REF+'/players/'+myPlayerId+'/rerollCooldownUntil']: now + (settings.rerollCooldown||60)*1000
+    });
+    showToast('Task rerolled!');
   }
 
   function renderPlayerList(elId, players, showLives) {
@@ -2427,6 +2469,7 @@
     document.getElementById('admin-live-emergency').value = settings.emergencyCooldown || 180;
     document.getElementById('admin-live-review').value = settings.reviewDuration || 30;
     document.getElementById('admin-live-reveal-delay').value = settings.killRevealDelay || 60;
+    document.getElementById('admin-live-reroll').value = settings.rerollCooldown || 60;
     // Show all sections (in-game context)
     const pauseBtn = document.getElementById('admin-float-pause');
     const resetWrap = document.getElementById('admin-float-reset-wrap');
@@ -2543,6 +2586,7 @@
     document.getElementById('admin-live-emergency').value = settings.emergencyCooldown || 180;
     document.getElementById('admin-live-review').value = settings.reviewDuration || 30;
     document.getElementById('admin-live-reveal-delay').value = settings.killRevealDelay || 60;
+    document.getElementById('admin-live-reroll').value = settings.rerollCooldown || 60;
     // Show all sections (in-game context)
     const pauseBtn = document.getElementById('admin-float-pause');
     const resetWrap = document.getElementById('admin-float-reset-wrap');
