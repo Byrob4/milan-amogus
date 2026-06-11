@@ -1032,6 +1032,7 @@
       document.getElementById('main-playername').textContent = myName;
       document.getElementById('main-role-pill').innerHTML = '<span class="pill pill-crew">Crewmate</span>';
       showScreen('screen-main');
+      startCooldownTick();
     }
     listenGame();
   }
@@ -1268,11 +1269,12 @@
   function renderImpTasks() {
     const me = gameState?.players?.[myPlayerId];
     if (!me) return;
-    const missions = Object.values(me.missions || {});
+    const allM = Object.values(me.missions || {});
     const el = document.getElementById('imp-tasks-list');
     if (!el) return;
-    if (!missions.length) { el.innerHTML = '<div style="color:var(--muted); font-size:13px;">No tasks assigned.</div>'; return; }
-    el.innerHTML = missions.map((m, i) => `
+    const indexed = allM.map((m, i) => ({ m, i })).filter(x => !x.m.done);
+    if (!indexed.length) { el.innerHTML = '<div style="color:var(--muted); font-size:13px;">All tasks done.</div>'; return; }
+    el.innerHTML = indexed.map(({ m, i }) => `
       <div class="mission-card ${m.done ? 'done' : ''}">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
           <div style="flex:1;">
@@ -1280,16 +1282,22 @@
             <div style="font-weight:500;">${m.description}</div>
             <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo' : m.proofType === 'audio' ? '🎙 Audio' : '🔢 Code'}</div>
           </div>
-          ${m.done ? '<span style="color:var(--green); font-size:18px; flex-shrink:0;">✓</span>' : `<button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="openProof(${i})">Complete</button>`}
+          <button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="${m.category==='coop'?`openCoop(${i})`:`openProof(${i})`}">${m.category==='coop'?'👥':'Complete'}</button>
         </div>
       </div>
     `).join('');
   }
 
   function renderTasks(me) {
-    const missions = Object.values(me.missions || {});
+    const allM = Object.values(me.missions || {});
     const el = document.getElementById('tasks-list');
-    el.innerHTML = missions.map((m, i) => `
+    // Only show NOT done missions (keep original index for actions)
+    const indexed = allM.map((m, i) => ({ m, i })).filter(x => !x.m.done);
+    if (!indexed.length) {
+      el.innerHTML = '<div style="color:var(--green); font-size:14px; text-align:center; padding:24px 0;">✓ All your tasks are complete!</div>';
+      return;
+    }
+    el.innerHTML = indexed.map(({ m, i }) => `
       <div class="mission-card ${m.done ? 'done' : ''}">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
           <div style="flex:1;">
@@ -1297,7 +1305,7 @@
             <div style="font-weight:500;">${m.description}</div>
             <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.category==='coop' ? '👥 Co-op mission' : m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : m.proofType === 'none' ? '✔ No proof' : '🔢 Secret code required'}</div>
           </div>
-          ${m.done ? '<span style="color:var(--green); font-size:18px; flex-shrink:0;">✓</span>' : `<div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;"><button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="${m.category==='coop'?`openCoop(${i})`:`openProof(${i})`}">${m.category==='coop'?'👥 Co-op':'Complete'}</button><button class="btn btn-ghost" style="width:auto; padding:5px 12px; font-size:11px;" onclick="rerollTask(${i})">🎲 Reroll</button></div>`}
+          <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;"><button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="${m.category==='coop'?`openCoop(${i})`:`openProof(${i})`}">${m.category==='coop'?'👥 Co-op':'Complete'}</button><button class="btn btn-ghost" style="width:auto; padding:5px 12px; font-size:11px;" onclick="rerollTask(${i})">🎲 Reroll</button></div>
         </div>
       </div>
     `).join('');
@@ -1375,7 +1383,9 @@
   function startCooldownTick() {
     if (cooldownInterval) clearInterval(cooldownInterval);
     cooldownInterval = setInterval(() => {
-      if (!gameState || myRole !== 'impostor') return;
+      if (!gameState) return;
+      refreshShieldIndicator();
+      if (myRole !== 'impostor') return;
       renderCooldown();
       const now = Date.now();
       const until = gameState.killCooldownUntil || 0;
@@ -1388,6 +1398,22 @@
       }
       cooldownWasActive = isActive;
     }, 250);
+  }
+
+  function refreshShieldIndicator() {
+    const me = gameState?.players?.[myPlayerId];
+    if (!me) return;
+    const shieldEl = document.getElementById('shield-indicator');
+    const shieldUntil = me.shieldUntil || 0;
+    if (Date.now() < shieldUntil) {
+      if (shieldEl) {
+        const rem = Math.ceil((shieldUntil - Date.now())/1000);
+        shieldEl.textContent = '🛡 Shielded — ' + rem + 's';
+        shieldEl.style.display = 'block';
+      }
+    } else if (shieldEl) {
+      shieldEl.style.display = 'none';
+    }
   }
 
   function renderCooldown() {
@@ -2054,14 +2080,13 @@
     const me = gameState.players[myPlayerId];
     const missions = Object.values(me.missions || {});
     const mission = missions[missionIdx];
-    document.getElementById('coop-title').textContent = 'Co-op: ' + mission.location;
+    document.getElementById('coop-title').textContent = 'Co-op: ' + (mission.location || 'mission');
     document.getElementById('coop-desc').textContent = mission.description;
-    // Reset steps
     ['choose','host','join','timer','winner','done'].forEach(s =>
       document.getElementById('coop-step-'+s).style.display = 'none');
-    document.getElementById('coop-step-choose').style.display = 'block';
-    document.getElementById('coop-join-code').value = '';
     document.getElementById('overlay-coop').classList.add('active');
+    // You have the mission — you host directly
+    coopStart();
   }
 
   function coopMissionType(desc) {
@@ -2200,9 +2225,15 @@
     const updates = {};
     let myMsg = 'Co-op complete!';
 
-    // Mark host's mission done
-    const hostMissionKey = 'm' + session.hostMissionIdx;
-    updates[GAME_REF+'/players/'+session.hostId+'/missions/'+hostMissionKey+'/done'] = true;
+    // Mark host's mission done — resolve actual key by index
+    const hostSnap = await get(ref(db, GAME_REF+'/players/'+session.hostId+'/missions'));
+    if (hostSnap.exists()) {
+      const keys = Object.keys(hostSnap.val());
+      const hostMissionKey = keys[session.hostMissionIdx];
+      if (hostMissionKey) {
+        updates[GAME_REF+'/players/'+session.hostId+'/missions/'+hostMissionKey+'/done'] = true;
+      }
+    }
 
     if (type === 'chill') {
       // joiner gets 3min shield, host gets completion
