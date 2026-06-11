@@ -263,8 +263,6 @@
   <div id="imp-tab-tasks" style="display:none">
     <div style="font-size:13px; color:var(--muted); margin-bottom:12px; padding:8px; background:rgba(226,75,74,0.08); border-radius:var(--radius-sm);">Your tasks don't count toward crew progress — but completing them helps you blend in.</div>
     <div id="imp-tasks-list"></div>
-    <div class="spacer"></div>
-    <button class="btn btn-ghost" onclick="openCoopJoin()">👥 Join a co-op</button>
   </div>
   <div id="imp-tab-sabotage" style="display:none">
     <div class="label">Sabotage</div>
@@ -289,6 +287,7 @@
     <button class="btn btn-ghost" id="imp-btn-confirm-vote" onclick="confirmVoteImp()" disabled>Confirm vote</button>
   </div>
   <div class="gap"></div>
+  <button class="btn btn-ghost" onclick="openCoopJoin()" style="margin-bottom:8px;">👥 Join a co-op</button>
   <button class="btn btn-ghost" id="imp-btn-emergency" onclick="callEmergency()">🚨 Emergency meeting</button>
   <div class="spacer"></div>
   <button class="btn btn-ghost" style="font-size:13px; padding:10px;" onclick="openReport()">⚠ Report player</button>
@@ -973,7 +972,21 @@
     updates[GAME_REF + '/meetingEndTime'] = null;
     updates[GAME_REF + '/emergencyCalledBy'] = null;
     updates[GAME_REF + '/evidence'] = null;
+    updates[GAME_REF + '/coopSessions'] = null;
     await update(ref(db), updates);
+    // Force own transition (admin) in case listener has stale state
+    setTimeout(async () => {
+      const s = await get(ref(db, GAME_REF));
+      if (s.exists()) {
+        gameState = s.val();
+        const myData = gameState.players?.[myPlayerId];
+        if (gameState.state === 'playing' && myData?.role && !roleRevealed) {
+          roleRevealed = true;
+          myRole = myData.role;
+          showRoleReveal();
+        }
+      }
+    }, 600);
   }
 
   function assignMissions() {
@@ -2080,15 +2093,15 @@
     document.getElementById('coop-code-display').textContent = code;
     // Listen for joiner
     if (coopListener) coopListener();
+    let hostProceeded = false;
     coopListener = onValue(ref(db, GAME_REF+'/coopSessions/'+code), (snap) => {
       if (!snap.exists()) return;
       const s = snap.val();
-      if (s.status === 'joined' && s.joinerId) {
+      if (s.status === 'complete') { handleCoopComplete(s, true); return; }
+      if (s.status === 'joined' && s.joinerId && !hostProceeded) {
+        hostProceeded = true;
         document.getElementById('coop-host-status').textContent = s.joinerName + ' joined!';
         proceedCoop(s, true);
-      }
-      if (s.status === 'complete') {
-        handleCoopComplete(s, true);
       }
     });
   }
@@ -2112,38 +2125,51 @@
       joinerName: myName,
       status: 'joined'
     });
-    // Listen for session updates
+    // Listen for session updates (timerStart, completion)
     if (coopListener) coopListener();
+    let joinerProceeded = false;
     coopListener = onValue(ref(db, GAME_REF+'/coopSessions/'+code), (snap2) => {
       if (!snap2.exists()) return;
       const s2 = snap2.val();
-      if (s2.status === 'complete') handleCoopComplete(s2, false);
+      if (s2.status === 'complete') { handleCoopComplete(s2, false); return; }
+      // Proceed once we have the session (with timerStart if chill)
+      if (!joinerProceeded) {
+        joinerProceeded = true;
+        proceedCoop(s2, false);
+      }
     });
-    proceedCoop(s, false);
   }
 
   function proceedCoop(session, isHost) {
-    ['choose','host','join'].forEach(s => document.getElementById('coop-step-'+s).style.display = 'none');
+    // Hide all steps and reset title
+    ['choose','host','join','timer','winner','done'].forEach(s => {
+      const el = document.getElementById('coop-step-'+s);
+      if (el) el.style.display = 'none';
+    });
+    document.getElementById('coop-title').textContent = 'Co-op: ' + (session.description ? '' : '') + 'in progress';
+    document.getElementById('coop-desc').textContent = session.description || '';
     const type = session.type;
     if (type === 'chill') {
-      // 60s timer
       document.getElementById('coop-step-timer').style.display = 'block';
-      let rem = 60;
-      document.getElementById('coop-timer-display').textContent = rem;
+      // Use shared start time so both phones count the same
+      const startTime = session.timerStart || Date.now();
+      if (isHost && !session.timerStart) {
+        update(ref(db, GAME_REF+'/coopSessions/'+coopSessionId), { timerStart: startTime });
+      }
       if (coopTimerInterval) clearInterval(coopTimerInterval);
       coopTimerInterval = setInterval(async () => {
-        rem--;
-        document.getElementById('coop-timer-display').textContent = rem;
+        const elapsed = Math.floor((Date.now() - startTime)/1000);
+        const rem = Math.max(0, 60 - elapsed);
+        const disp = document.getElementById('coop-timer-display');
+        if (disp) disp.textContent = rem;
         if (rem <= 0) {
           clearInterval(coopTimerInterval);
-          // Host finalizes: joiner gets shield, host gets completion
           if (isHost) {
             await update(ref(db, GAME_REF+'/coopSessions/'+coopSessionId), { status: 'complete', winner: 'chill' });
           }
         }
-      }, 1000);
+      }, 500);
     } else if (type === 'pingpong' || type === 'race') {
-      // Pick winner — only host picks to avoid conflict
       document.getElementById('coop-step-winner').style.display = 'block';
       const opts = document.getElementById('coop-winner-options');
       if (isHost) {
@@ -2154,9 +2180,11 @@
         opts.innerHTML = '<div style="font-size:13px; color:var(--muted);">Waiting for host to record the winner...</div>';
       }
     } else {
-      // generic — host marks complete
       if (isHost) {
         update(ref(db, GAME_REF+'/coopSessions/'+coopSessionId), { status: 'complete', winner: 'generic' });
+      } else {
+        document.getElementById('coop-step-timer').style.display = 'none';
+        document.getElementById('coop-desc').textContent = 'Waiting for host to complete...';
       }
     }
   }
