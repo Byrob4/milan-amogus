@@ -490,6 +490,12 @@
     <div class="spacer"></div>
     <div class="label">Settings (live)</div>
 
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Number of impostors</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-impostors" style="flex:1;" min="1" max="3" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('impostorCount','admin-live-impostors')">Set</button>
+    </div>
+
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Kill cooldown (s)</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
       <input type="number" id="admin-live-cooldown" style="flex:1;" min="10" max="300" />
@@ -1929,6 +1935,7 @@
 
   window.openAdminFloat = async function() {
     // Load all live settings
+    document.getElementById('admin-live-impostors').value = settings.impostorCount || 1;
     document.getElementById('admin-live-cooldown').value = settings.cooldown || 120;
     document.getElementById('admin-live-meeting').value = settings.meetingDuration || 300;
     document.getElementById('admin-live-vote').value = settings.voteDuration || 60;
@@ -2039,6 +2046,7 @@
 
   window.openLobbyAdminSettings = async function() {
     await loadSettings();
+    document.getElementById('admin-live-impostors').value = settings.impostorCount || 1;
     document.getElementById('admin-live-cooldown').value = settings.cooldown || 120;
     document.getElementById('admin-live-meeting').value = settings.meetingDuration || 300;
     document.getElementById('admin-live-vote').value = settings.voteDuration || 60;
