@@ -800,8 +800,11 @@
       if (adminLobby) adminLobby.style.display = isAdmin ? 'block' : 'none';
       if (statusEl) statusEl.textContent = plist.length + ' player' + (plist.length!==1?'s':'') + ' in lobby (need ' + minP + ' to start)';
       if (gameState.state === 'playing' && !roleRevealed) {
+        const myPlayerData = gameState.players?.[myPlayerId];
+        // Wait until role is assigned before transitioning
+        if (!myPlayerData?.role) return;
         roleRevealed = true;
-        myRole = gameState.players[myPlayerId]?.role;
+        myRole = myPlayerData.role;
         showRoleReveal();
       }
     });
