@@ -86,14 +86,27 @@
 <!-- JOIN -->
 <div class="screen" id="screen-join">
   <div class="logo">Among Us · City · v3</div>
-  <h1>Enter your name</h1>
+  <h1>Join the game</h1>
   <div class="spacer-lg"></div>
-  <div class="label">Your name</div>
-  <input type="text" id="input-name" placeholder="e.g. Marco" maxlength="20" />
-  <div class="spacer"></div>
-  <button class="btn btn-primary" onclick="joinGame()">Join game</button>
-  <div class="spacer"></div>
-  <button class="btn btn-ghost" onclick="goAdmin()">Admin panel</button>
+  <div id="join-player-form">
+    <div class="label">Your name</div>
+    <input type="text" id="input-name" placeholder="e.g. Marco" maxlength="20" />
+    <div class="spacer"></div>
+    <button class="btn btn-primary" onclick="joinGame()">Join as player</button>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="showAdminJoin()">Join as admin</button>
+  </div>
+  <div id="join-admin-form" style="display:none">
+    <div class="label">Admin password</div>
+    <input type="password" id="input-admin-pw" placeholder="Password" />
+    <div class="spacer"></div>
+    <div class="label">Your name</div>
+    <input type="text" id="input-admin-name" placeholder="e.g. Marco" maxlength="20" />
+    <div class="spacer"></div>
+    <button class="btn btn-danger" onclick="joinAsAdmin()">Join as admin</button>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="hideAdminJoin()">Back</button>
+  </div>
 </div>
 
 <!-- LOBBY -->
@@ -106,7 +119,7 @@
   <div class="spacer"></div>
   <div id="lobby-status" style="font-size:14px; color:var(--muted); text-align:center;"></div>
   <div class="gap"></div>
-  <button class="btn btn-primary" id="btn-start" onclick="startGame()" style="display:none">Start game</button>
+  <button class="btn btn-primary" id="btn-start" onclick="startGame()" style="display:none">Start game (admin)</button>
   <div class="spacer"></div>
   <button class="btn btn-ghost" onclick="leaveGame()">Leave</button>
 </div>
@@ -142,12 +155,15 @@
 
 <!-- PHOTO REVIEW -->
 <div class="screen" id="screen-photo-review">
-  <div style="font-size:13px; font-weight:600; color:var(--imp); letter-spacing:0.08em; margin-bottom:8px;">KILL REVIEW</div>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+    <div style="font-size:13px; font-weight:600; color:var(--imp); letter-spacing:0.08em;">KILL REVIEW</div>
+    <div style="font-size:22px; font-weight:700; color:var(--imp);" id="review-timer">30s</div>
+  </div>
   <div style="font-size:15px; font-weight:500; margin-bottom:4px;">Did this kill happen correctly?</div>
-  <div style="font-size:13px; color:var(--muted); margin-bottom:20px;">The photo must clearly show the victim's face.</div>
+  <div style="font-size:13px; color:var(--muted); margin-bottom:16px;">The photo must show the victim's face clearly.</div>
   <div id="review-list"></div>
   <div class="gap"></div>
-  <button class="btn btn-primary" id="btn-done-review" onclick="submitPhotoReviews()">Done — proceed to vote</button>
+  <button class="btn btn-primary" id="btn-done-review" onclick="submitPhotoReviews()">Submit vote</button>
 </div>
 
 <!-- MEETING RECAP -->
@@ -449,6 +465,43 @@
   </div>
 </div>
 
+<!-- FLOATING ADMIN BUTTON (always visible to admin) -->
+<div id="admin-float-btn" style="display:none; position:fixed; bottom:80px; right:16px; z-index:300;">
+  <button onclick="openAdminFloat()" style="background:var(--imp); color:#fff; border:none; border-radius:50%; width:48px; height:48px; font-size:18px; cursor:pointer; font-weight:700; box-shadow:0 2px 8px rgba(0,0,0,0.4);">A</button>
+</div>
+
+<!-- ADMIN FLOAT OVERLAY -->
+<div class="overlay" id="overlay-admin-float">
+  <div class="overlay-box" style="max-height:85vh; overflow-y:auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h3>Admin controls</h3>
+      <button onclick="closeOverlay('overlay-admin-float')" style="background:none; border:none; font-size:20px; cursor:pointer; color:var(--muted);">×</button>
+    </div>
+    <button class="btn btn-amber" id="admin-float-pause" onclick="togglePauseGame()" style="margin-bottom:8px;">Pause game</button>
+    <div class="spacer"></div>
+    <div class="label">Kill cooldown (live)</div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <input type="number" id="admin-live-cooldown" style="flex:1;" min="10" max="300" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 14px;" onclick="updateLiveCooldown()">Set</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="label">Players</div>
+    <div id="admin-float-players"></div>
+    <div class="spacer"></div>
+    <div id="admin-float-reports" style="display:none">
+      <div class="label" style="color:var(--imp);">⚠ Reports</div>
+      <div id="admin-float-reports-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- REPORT NOTIFICATION BANNER -->
+<div id="report-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:400; background:rgba(226,75,74,0.97); padding:14px 20px; text-align:center;">
+  <div style="font-size:13px; font-weight:700; letter-spacing:0.06em; margin-bottom:2px;">⚠ NEW REPORT</div>
+  <div id="report-banner-text" style="font-size:14px;"></div>
+  <button onclick="document.getElementById('report-banner').style.display='none'" style="background:none; border:none; color:white; font-size:18px; position:absolute; right:14px; top:50%; transform:translateY(-50%); cursor:pointer;">×</button>
+</div>
+
 <!-- Sabotage banner -->
 <div id="sabotage-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:200; background:rgba(226,75,74,0.95); padding:14px 20px; text-align:center;">
   <div style="font-size:12px; font-weight:700; letter-spacing:0.08em; margin-bottom:4px;">SYSTEM ANNOUNCEMENT</div>
@@ -500,10 +553,11 @@
   const MISSIONS_REF = 'missions';
 
   let myPlayerId = null;
+  let isAdmin = false;
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, adminPassword: ADMIN_PASSWORD_DEFAULT };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, adminPassword: ADMIN_PASSWORD_DEFAULT };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -516,6 +570,26 @@
   let meetingTimerInterval = null;
   let roleRevealed = false;
   let currentPhase = 'lobby';
+
+  window.showAdminJoin = function() {
+    document.getElementById('join-player-form').style.display = 'none';
+    document.getElementById('join-admin-form').style.display = 'block';
+  }
+  window.hideAdminJoin = function() {
+    document.getElementById('join-player-form').style.display = 'block';
+    document.getElementById('join-admin-form').style.display = 'none';
+  }
+  window.joinAsAdmin = async function() {
+    const pw = document.getElementById('input-admin-pw').value;
+    const name = document.getElementById('input-admin-name').value.trim();
+    if (!name) { showToast('Enter your name'); return; }
+    await loadSettings();
+    if (pw !== (settings.adminPassword || ADMIN_PASSWORD_DEFAULT)) { showToast('Wrong password'); return; }
+    isAdmin = true;
+    localStorage.setItem('amogus_is_admin', '1');
+    document.getElementById('input-name').value = name;
+    await joinGame();
+  }
 
   window.showScreen = function(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -587,6 +661,8 @@
     myName = savedName;
     myRole = player.role;
     roleRevealed = true;
+    isAdmin = localStorage.getItem('amogus_is_admin') === '1';
+    if (isAdmin) document.getElementById('admin-float-btn').style.display = 'block';
     gameState = g;
     if (g.state === 'lobby') {
       showScreen('screen-lobby');
@@ -620,6 +696,7 @@
     myPlayerId = getPlayerId();
     myName = name;
     localStorage.setItem('amogus_player_name', name);
+    if (!isAdmin) isAdmin = localStorage.getItem('amogus_is_admin') === '1';
     roleRevealed = false;
     await loadSettings();
     await loadMissions();
@@ -660,7 +737,7 @@
       const statusEl = document.getElementById('lobby-status');
       if (statusEl) statusEl.textContent = `${plist.length} player${plist.length!==1?'s':''} in lobby`;
       const btnStart = document.getElementById('btn-start');
-      if (btnStart) btnStart.style.display = plist.length >= 2 ? 'block' : 'none';
+      if (btnStart) btnStart.style.display = (isAdmin && plist.length >= 2) ? 'block' : 'none';
       if (gameState.state === 'playing' && !roleRevealed) {
         roleRevealed = true;
         myRole = gameState.players[myPlayerId]?.role;
@@ -670,6 +747,7 @@
   }
 
   window.startGame = async function() {
+    if (!isAdmin) { showToast('Only admin can start the game'); return; }
     await loadMissions();
     const snap = await get(ref(db, GAME_REF + '/players'));
     if (!snap.exists()) return;
@@ -713,11 +791,22 @@
       ? 'Eliminate crewmates. Survive the vote. Win.'
       : 'Complete your tasks. Find the impostor. Survive.';
     document.getElementById('role-name').style.color = role === 'impostor' ? 'var(--imp)' : 'var(--crew)';
+    if (role === 'impostor' && gameState) {
+      const fellowImpostors = Object.values(gameState.players||{})
+        .filter(p => p.role === 'impostor' && p.name !== myName);
+      if (fellowImpostors.length > 0) {
+        document.getElementById('role-desc').textContent = 'Your fellow impostor' + (fellowImpostors.length>1?'s':'') + ': ' + fellowImpostors.map(p=>p.name).join(', ');
+      }
+    }
     showScreen('screen-role');
   }
 
   window.goToMain = function() {
     currentPhase = 'playing';
+    if (isAdmin) {
+      document.getElementById('admin-float-btn').style.display = 'block';
+      listenReports();
+    }
     if (myRole === 'impostor') {
       document.getElementById('imp-playername').textContent = myName;
       showScreen('screen-impostor');
@@ -1165,27 +1254,78 @@
 
   let myPhotoReviews = {};
 
+  let reviewTimerInterval = null;
+
   function showPhotoReview() {
     showScreen('screen-photo-review');
-    // Re-read fresh from gameState (kept up to date by Firebase listener)
     const evidence = gameState?.pendingEvidence || {};
     const entries = Object.entries(evidence);
     const el = document.getElementById('review-list');
     if (!entries.length) {
       el.innerHTML = '<div style="color:var(--muted); font-size:14px; text-align:center; padding:24px 0;">No kills to review.</div>';
+      // Auto-proceed if no evidence
+      setTimeout(() => finishReviewAndVote(), 1500);
       return;
     }
     myPhotoReviews = {};
-    el.innerHTML = entries.map(([killId, e]) => `
-      <div class="card" style="margin-bottom:16px;">
-        <img src="${e.photo}" style="width:100%; border-radius:8px; display:block; margin-bottom:10px; aspect-ratio:4/3; object-fit:cover;" />
-        <div style="font-weight:600; margin-bottom:8px;">💀 ${e.victimName}</div>
+    // Check if I am the contestor — if so I cannot vote
+    const iContested = entries.some(([, e]) => e.victimId === myPlayerId);
+    const canVote = !iContested;
+    el.innerHTML = entries.map(([killId, e]) => {
+      const adminButtons = isAdmin ? `
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; padding-top:6px; border-top:0.5px solid var(--border);">
+          <button class="btn btn-success" onclick="adminForceReview('${killId}','valid')" style="font-size:12px; padding:6px;">✅ Force valid</button>
+          <button class="btn btn-danger" onclick="adminForceReview('${killId}','invalid')" style="font-size:12px; padding:6px;">❌ Force invalid</button>
+        </div>` : '';
+      const voteButtons = canVote ? `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
           <button class="btn btn-success" id="review-valid-${killId}" onclick="setReview('${killId}','valid')" style="font-size:13px; padding:8px;">✓ Valid</button>
           <button class="btn btn-danger" id="review-invalid-${killId}" onclick="setReview('${killId}','invalid')" style="font-size:13px; padding:8px;">✗ Invalid</button>
-        </div>
-      </div>
-    `).join('');
+        </div>` : `<div style="font-size:13px; color:var(--muted); text-align:center; padding:8px 0;">You cannot vote on your own kill</div>`;
+      return `<div class="card" style="margin-bottom:16px;">
+        <img src="${e.photo}" style="width:100%; border-radius:8px; display:block; margin-bottom:10px; aspect-ratio:4/3; object-fit:cover;" />
+        <div style="font-weight:600; margin-bottom:8px;">💀 ${e.victimName}</div>
+        ${voteButtons}${adminButtons}
+      </div>`;
+    }).join('');
+    // Start review timer
+    let rem = settings.reviewDuration || 30;
+    document.getElementById('review-timer').textContent = rem + 's';
+    if (reviewTimerInterval) clearInterval(reviewTimerInterval);
+    reviewTimerInterval = setInterval(() => {
+      rem--;
+      const el2 = document.getElementById('review-timer');
+      if (el2) el2.textContent = rem + 's';
+      if (rem <= 0) {
+        clearInterval(reviewTimerInterval);
+        submitPhotoReviews();
+      }
+    }, 1000);
+  }
+
+  window.adminForceReview = async function(killId, verdict) {
+    const evidence = gameState?.pendingEvidence || {};
+    const e = evidence[killId];
+    if (!e) return;
+    const updates = {};
+    if (verdict === 'invalid') {
+      const victim = gameState.players?.[e.victimId];
+      updates[GAME_REF+'/players/'+e.victimId+'/lives'] = (victim?.lives || 0) + 1;
+      updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
+      updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
+      if (e.pendingKillId) updates[GAME_REF+'/pendingKills/'+e.pendingKillId+'/resolved'] = true;
+    } else {
+      updates[GAME_REF+'/players/'+e.victimId+'/alive'] = false;
+      updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
+      updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
+      if (e.killId || e.pendingKillId) updates[GAME_REF+'/pendingKills/'+(e.killId||e.pendingKillId)+'/resolved'] = true;
+    }
+    updates[GAME_REF+'/pendingEvidence/'+killId] = null;
+    updates[GAME_REF+'/adminForceVerdict/'+killId] = verdict;
+    await update(ref(db), updates);
+    showToast('Verdict applied');
+    if (reviewTimerInterval) clearInterval(reviewTimerInterval);
+    finishReviewAndVote();
   }
 
   window.setReview = function(killId, verdict) {
@@ -1195,50 +1335,58 @@
   }
 
   window.submitPhotoReviews = async function() {
-    const evidence = gameState.pendingEvidence || {};
+    if (reviewTimerInterval) clearInterval(reviewTimerInterval);
+    const evidence = gameState?.pendingEvidence || {};
     const entries = Object.entries(evidence);
-    const totalVoters = Object.values(gameState.players||{}).filter(p=>p.alive).length;
     const updates = {};
     for (const [killId, e] of entries) {
+      // Skip if admin already forced a verdict
+      if (gameState?.adminForceVerdict?.[killId]) continue;
+      // Exclude the contestor from voter count
+      const eligibleVoters = Object.values(gameState.players||{})
+        .filter(p => (p.alive || p.pendingKill) && p.name !== '' && Object.keys(gameState.players).find(k=>gameState.players[k]===p) !== e.victimId);
+      const totalVoters = eligibleVoters.length;
       const reviewsSnap = await get(ref(db, GAME_REF+'/photoReviews/'+killId));
-      const reviews = reviewsSnap.exists() ? reviewsSnap.val() : {};
-      reviews[myPlayerId] = myPhotoReviews[killId] || 'skip';
-      updates[GAME_REF+'/photoReviews/'+killId] = reviews;
-      // Check if all alive players have reviewed
-      const reviewCount = Object.keys(reviews).filter(k => reviews[k] !== 'skip').length;
-      if (reviewCount >= totalVoters) {
-        const invalidCount = Object.values(reviews).filter(v => v === 'invalid').length;
-        if (invalidCount > totalVoters / 2) {
-          // Majority says invalid — restore life and revive
-          const victim = gameState.players?.[e.victimId];
-          const restoredLives = (victim?.lives || 0) + 1;
-          updates[GAME_REF+'/players/'+e.victimId+'/lives'] = restoredLives;
-          updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
-          updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
-          // Also resolve the pending kill
-          if (e.pendingKillId) {
-            updates[GAME_REF+'/pendingKills/'+e.pendingKillId+'/resolved'] = true;
-          }
-        } else {
-          // Kill confirmed — make death permanent
-          updates[GAME_REF+'/players/'+e.victimId+'/alive'] = false;
-          updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
-          updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
-          if (e.killId || e.pendingKillId) {
-            const kid = e.killId || e.pendingKillId;
-            updates[GAME_REF+'/pendingKills/'+kid+'/resolved'] = true;
-          }
-        }
-        updates[GAME_REF+'/pendingEvidence/'+killId] = null;
-        updates[GAME_REF+'/photoReviews/'+killId] = null;
+      const existing = reviewsSnap.exists() ? reviewsSnap.val() : {};
+      if (myPhotoReviews[killId] && e.victimId !== myPlayerId) {
+        existing[myPlayerId] = myPhotoReviews[killId];
+        updates[GAME_REF+'/photoReviews/'+killId] = existing;
       }
+      const invalidCount = Object.values(existing).filter(v => v === 'invalid').length;
+      // Tie or majority valid = valid. Only strict majority invalid = invalid.
+      if (invalidCount * 2 > totalVoters) {
+        // Invalid — restore life
+        const victim = gameState.players?.[e.victimId];
+        updates[GAME_REF+'/players/'+e.victimId+'/lives'] = (victim?.lives || 0) + 1;
+        updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
+        updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
+        if (e.pendingKillId) updates[GAME_REF+'/pendingKills/'+e.pendingKillId+'/resolved'] = true;
+        showToast(e.victimName + ' kill invalidated — life restored');
+      } else {
+        // Valid — confirm death
+        updates[GAME_REF+'/players/'+e.victimId+'/alive'] = false;
+        updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
+        updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
+        const kid = e.killId || e.pendingKillId;
+        if (kid) updates[GAME_REF+'/pendingKills/'+kid+'/resolved'] = true;
+        await push(ref(db, GAME_REF+'/evidence'), e);
+      }
+      updates[GAME_REF+'/pendingEvidence/'+killId] = null;
+      updates[GAME_REF+'/photoReviews/'+killId] = null;
     }
-    updates[GAME_REF+'/meetingActive'] = false;
-    updates[GAME_REF+'/votingActive'] = true;
-    updates[GAME_REF+'/voteEndTime'] = Date.now() + (settings.voteDuration||60)*1000;
-    updates[GAME_REF+'/pendingEvidence'] = null;
-    updates[GAME_REF+'/photoReviews'] = null;
+    updates[GAME_REF+'/adminForceVerdict'] = null;
     await update(ref(db), updates);
+    finishReviewAndVote();
+  }
+
+  function finishReviewAndVote() {
+    if (reviewTimerInterval) clearInterval(reviewTimerInterval);
+    update(ref(db), {
+      [GAME_REF+'/meetingActive']: false,
+      [GAME_REF+'/votingActive']: true,
+      [GAME_REF+'/voteEndTime']: Date.now() + (settings.voteDuration||60)*1000,
+      [GAME_REF+'/pendingEvidence']: null
+    });
     currentPhase = 'voting';
     showVotingScreen();
   }
@@ -1728,6 +1876,86 @@
     });
     closeOverlay('overlay-report');
     showToast('Report submitted');
+  }
+
+  window.openAdminFloat = async function() {
+    // Load live cooldown
+    document.getElementById('admin-live-cooldown').value = settings.cooldown || 120;
+    // Render player list with life controls
+    const snap = await get(ref(db, GAME_REF+'/players'));
+    const el = document.getElementById('admin-float-players');
+    if (snap.exists()) {
+      const players = snap.val();
+      el.innerHTML = Object.entries(players).map(([id, p]) => `
+        <div style="display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:0.5px solid var(--border);">
+          <div class="player-dot" style="background:${p.color}"></div>
+          <span style="flex:1; font-size:14px;">${p.name}</span>
+          <span style="font-size:12px; color:var(--amber);">${'❤️'.repeat(Math.max(0,p.lives||0))}</span>
+          <button onclick="adminSetAlive('${id}',true)" style="background:var(--green);color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;">+life</button>
+          <button onclick="adminSetAlive('${id}',false)" style="background:var(--imp);color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;">kill</button>
+        </div>`).join('');
+    }
+    // Show pending reports
+    const rSnap = await get(ref(db, GAME_REF+'/reports'));
+    const rEl = document.getElementById('admin-float-reports');
+    const rList = document.getElementById('admin-float-reports-list');
+    if (rSnap.exists()) {
+      const reports = Object.values(rSnap.val());
+      rEl.style.display = 'block';
+      rList.innerHTML = reports.map(r => `<div style="background:var(--bg3);border-radius:6px;padding:8px;margin-bottom:6px;font-size:13px;"><b style="color:var(--imp);">${r.reportedName}</b> — ${r.reason}<div style="color:var(--muted);font-size:11px;">by ${r.reportedByName}</div></div>`).join('');
+    } else { rEl.style.display = 'none'; }
+    // Update pause button
+    const snap2 = await get(ref(db, GAME_REF+'/paused'));
+    const btn = document.getElementById('admin-float-pause');
+    if (btn) { btn.textContent = (snap2.exists()&&snap2.val()) ? 'Resume game' : 'Pause game'; btn.className = (snap2.exists()&&snap2.val()) ? 'btn btn-success' : 'btn btn-amber'; }
+    document.getElementById('overlay-admin-float').classList.add('active');
+  }
+
+  window.adminSetAlive = async function(id, addLife) {
+    const snap = await get(ref(db, GAME_REF+'/players/'+id));
+    if (!snap.exists()) return;
+    const p = snap.val();
+    if (addLife) {
+      await update(ref(db), {
+        [GAME_REF+'/players/'+id+'/lives']: (p.lives||0)+1,
+        [GAME_REF+'/players/'+id+'/alive']: true,
+        [GAME_REF+'/players/'+id+'/pendingKill']: false,
+        [GAME_REF+'/players/'+id+'/temporarilyDead']: false
+      });
+      showToast(p.name + ' revived (+1 life)');
+    } else {
+      await update(ref(db), {
+        [GAME_REF+'/players/'+id+'/alive']: false,
+        [GAME_REF+'/players/'+id+'/lives']: 0,
+        [GAME_REF+'/players/'+id+'/pendingKill']: false
+      });
+      showToast(p.name + ' eliminated');
+    }
+    openAdminFloat();
+  }
+
+  window.updateLiveCooldown = async function() {
+    const val = parseInt(document.getElementById('admin-live-cooldown').value)||120;
+    settings.cooldown = val;
+    await update(ref(db), { [SETTINGS_REF+'/cooldown']: val });
+    closeOverlay('overlay-admin-float');
+    showToast('Cooldown updated to ' + val + 's');
+  }
+
+  function listenReports() {
+    onValue(ref(db, GAME_REF+'/reports'), (snap) => {
+      if (!snap.exists() || !isAdmin) return;
+      const reports = Object.values(snap.val());
+      const latest = reports[reports.length-1];
+      if (latest && latest.timestamp > (window._lastReportTs||0)) {
+        window._lastReportTs = latest.timestamp;
+        const banner = document.getElementById('report-banner');
+        document.getElementById('report-banner-text').textContent = latest.reportedName + ' reported: ' + latest.reason;
+        banner.style.display = 'block';
+        if (navigator.vibrate) navigator.vibrate([200,100,200]);
+        setTimeout(() => { banner.style.display = 'none'; }, 8000);
+      }
+    });
   }
 
   window.togglePauseGame = async function() {
