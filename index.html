@@ -930,12 +930,15 @@
   }
 
   function goToMainScreen() {
+    stopSiren();
     if (myRole === 'impostor') showScreen('screen-impostor');
     else showScreen('screen-main');
     renderGame();
   }
 
   function startMeetingCountdown() {
+    playSirenSound(4000);
+    if (navigator.vibrate) navigator.vibrate([500, 100, 500, 100, 500]);
     showScreen('screen-meeting');
     const callerName = gameState.players[gameState.emergencyCalledBy]?.name || 'Someone';
     document.getElementById('meeting-caller').textContent = `Called by ${callerName}`;
@@ -1013,7 +1016,12 @@
       renderTasks(me);
       renderPlayerList('players-alive', alive, currentPhase==='voting');
       renderPlayerList('players-dead', dead, currentPhase==='voting');
-      document.getElementById('btn-emergency').disabled = !!gameState.meetingActive || !!gameState.votingActive || isPaused;
+      const emergencyActive = !!gameState.meetingActive || !!gameState.votingActive;
+      const btnEmergency = document.getElementById('btn-emergency');
+      if (btnEmergency) {
+        btnEmergency.disabled = emergencyActive || isPaused;
+        btnEmergency.style.display = emergencyActive ? 'none' : 'block';
+      }
       document.getElementById('tab-vote-btn').style.display = 'none';
     } else {
       document.getElementById('imp-paused-notice').style.display = isPaused ? 'block' : 'none';
@@ -1025,7 +1033,12 @@
       document.getElementById('sabotage-used-notice').style.display = sabotageUsed ? 'block' : 'none';
       document.getElementById('btn-sabotage').disabled = sabotageUsed || isPaused;
       document.getElementById('imp-vote-tab-btn').style.display = 'none';
-      document.getElementById('imp-btn-emergency').disabled = !!gameState.meetingActive || !!gameState.votingActive || isPaused;
+      const impBtnEmergency = document.getElementById('imp-btn-emergency');
+      if (impBtnEmergency) {
+        const emergencyActiveImp = !!gameState.meetingActive || !!gameState.votingActive;
+        impBtnEmergency.disabled = emergencyActiveImp || isPaused;
+        impBtnEmergency.style.display = emergencyActiveImp ? 'none' : 'block';
+      }
     }
 
     if (gameState.sabotageMessage && gameState.sabotageVisible) {
@@ -1334,9 +1347,9 @@
 
   function showRecapThenReturn(recap, g) {
     showRecap(recap, g);
-    // Auto-dismiss after 6 seconds
+    // Auto-dismiss after 6 seconds — force transition regardless of phase
     setTimeout(() => {
-      if (currentPhase === 'recap') dismissRecap();
+      dismissRecap();
     }, 6000);
   }
 
@@ -1482,6 +1495,34 @@
   let contestTimerInterval = null;
 
   let killAlertPlayed = new Set();
+  let ambulanceCtx = null;
+  let ambulanceTimeout = null;
+
+  function playAmbulanceSound(durationMs) {
+    try {
+      if (ambulanceCtx) { try { ambulanceCtx.close(); } catch(e){} }
+      ambulanceCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const gain = ambulanceCtx.createGain();
+      gain.gain.setValueAtTime(0.35, ambulanceCtx.currentTime);
+      gain.connect(ambulanceCtx.destination);
+      const cycles = Math.floor(durationMs / 800);
+      for (let i = 0; i < cycles; i++) {
+        const osc = ambulanceCtx.createOscillator();
+        osc.type = 'sine';
+        const t = ambulanceCtx.currentTime + i * 0.8;
+        osc.frequency.setValueAtTime(960, t);
+        osc.frequency.setValueAtTime(760, t + 0.4);
+        osc.connect(gain);
+        osc.start(t);
+        osc.stop(t + 0.78);
+      }
+    } catch(e) {}
+  }
+
+  function stopAmbulance() {
+    try { if (ambulanceCtx) { ambulanceCtx.close(); ambulanceCtx = null; } } catch(e) {}
+    if (ambulanceTimeout) { clearTimeout(ambulanceTimeout); ambulanceTimeout = null; }
+  }
 
   function playGunshotSound() {
     try {
@@ -1522,7 +1563,9 @@
     if (!killAlertPlayed.has(killId)) {
       killAlertPlayed.add(killId);
       playGunshotSound();
-      if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 400]);
+      // Start ambulance loop for duration of contest window
+      playAmbulanceSound(32000);
+      if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 600, 200, 600]);
     }
     notice.style.display = 'block';
     document.getElementById('kill-contest-photo').innerHTML = `<img src="${killData.photo}" style="width:100%; border-radius:8px;" />`;
@@ -1542,6 +1585,7 @@
   }
 
   async function acceptKillById(killId) {
+    stopAmbulance();
     const notice = document.getElementById('kill-contest-notice');
     if (notice) notice.style.display = 'none';
     if (contestTimerInterval) clearInterval(contestTimerInterval);
@@ -1564,6 +1608,7 @@
   }
 
   window.contestKill = async function() {
+    stopAmbulance();
     const notice = document.getElementById('kill-contest-notice');
     const killId = notice._killId;
     if (!killId) return;
@@ -1581,6 +1626,40 @@
     showToast('Kill contested — will be discussed at next meeting', 4000);
   }
 
+  let sirenNode = null;
+  let sirenCtx = null;
+
+  function playSirenSound(durationMs) {
+    try {
+      if (sirenCtx) { try { sirenCtx.close(); } catch(e){} }
+      sirenCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = sirenCtx.createOscillator();
+      const gain = sirenCtx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(800, sirenCtx.currentTime);
+      // Oscillate frequency like a real siren
+      const cycles = Math.floor(durationMs / 600);
+      for (let i = 0; i < cycles; i++) {
+        const t = sirenCtx.currentTime + (i * 0.6);
+        osc.frequency.setValueAtTime(600, t);
+        osc.frequency.linearRampToValueAtTime(1100, t + 0.3);
+        osc.frequency.linearRampToValueAtTime(600, t + 0.6);
+      }
+      gain.gain.setValueAtTime(0.4, sirenCtx.currentTime);
+      gain.gain.setValueAtTime(0.4, sirenCtx.currentTime + durationMs/1000 - 0.1);
+      gain.gain.linearRampToValueAtTime(0, sirenCtx.currentTime + durationMs/1000);
+      osc.connect(gain);
+      gain.connect(sirenCtx.destination);
+      osc.start();
+      osc.stop(sirenCtx.currentTime + durationMs/1000);
+      sirenNode = osc;
+    } catch(e) {}
+  }
+
+  function stopSiren() {
+    try { if (sirenCtx) { sirenCtx.close(); sirenCtx = null; sirenNode = null; } } catch(e) {}
+  }
+
   window.callEmergency = async function() {
     if (gameState.meetingActive || gameState.votingActive) return;
     const now = Date.now();
@@ -1591,6 +1670,8 @@
       return;
     }
     const meetingEnd = now + (settings.meetingDuration||300)*1000;
+    playSirenSound(4000);
+    if (navigator.vibrate) navigator.vibrate([500, 100, 500, 100, 500]);
     await update(ref(db), {
       [GAME_REF+'/emergencyCalledBy']: myPlayerId,
       [GAME_REF+'/meetingActive']: true,
@@ -1709,7 +1790,7 @@
     };
     // Reduce victim's lives and mark as pending
     const victim = gameState.players[killTarget];
-    const currentLives = (victim?.lives || 1) - 1;
+    const currentLives = (victim?.lives !== undefined ? victim.lives : (settings.lives || 2)) - 1;
     const isTemporarilyDead = currentLives <= 0;
     await update(ref(db), {
       [GAME_REF+'/players/'+killTarget+'/pendingKill']: true,
