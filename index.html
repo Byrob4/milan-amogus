@@ -477,13 +477,51 @@
       <h3>Admin controls</h3>
       <button onclick="closeOverlay('overlay-admin-float')" style="background:none; border:none; font-size:20px; cursor:pointer; color:var(--muted);">×</button>
     </div>
-    <button class="btn btn-amber" id="admin-float-pause" onclick="togglePauseGame()" style="margin-bottom:8px;">Pause game</button>
-    <div class="spacer"></div>
-    <div class="label">Kill cooldown (live)</div>
-    <div style="display:flex; gap:8px; align-items:center;">
-      <input type="number" id="admin-live-cooldown" style="flex:1;" min="10" max="300" />
-      <button class="btn btn-ghost" style="width:auto; padding:8px 14px;" onclick="updateLiveCooldown()">Set</button>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="btn btn-amber" id="admin-float-pause" onclick="togglePauseGame()">Pause game</button>
+      <button class="btn btn-danger" onclick="adminResetGame()">Reset game</button>
     </div>
+
+    <div class="spacer"></div>
+    <div class="label">Settings (live)</div>
+
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Kill cooldown (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-cooldown" style="flex:1;" min="10" max="300" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('cooldown','admin-live-cooldown')">Set</button>
+    </div>
+
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Meeting countdown (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-meeting" style="flex:1;" min="30" max="600" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('meetingDuration','admin-live-meeting')">Set</button>
+    </div>
+
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Vote duration (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-vote" style="flex:1;" min="20" max="180" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('voteDuration','admin-live-vote')">Set</button>
+    </div>
+
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Emergency cooldown (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-emergency" style="flex:1;" min="30" max="600" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('emergencyCooldown','admin-live-emergency')">Set</button>
+    </div>
+
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Review timer (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-review" style="flex:1;" min="10" max="120" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('reviewDuration','admin-live-review')">Set</button>
+    </div>
+
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Kill reveal delay (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-reveal-delay" style="flex:1;" min="10" max="300" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('killRevealDelay','admin-live-reveal-delay')">Set</button>
+    </div>
+
     <div class="spacer"></div>
     <div class="label">Players</div>
     <div id="admin-float-players"></div>
@@ -557,7 +595,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, adminPassword: ADMIN_PASSWORD_DEFAULT };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, adminPassword: ADMIN_PASSWORD_DEFAULT };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1171,11 +1209,7 @@
     if (aliveImpostors.length === 0) {
       await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'crewmates', [GAME_REF+'/endReason']: 'All impostors eliminated. Crewmates win!' });
     } else if (aliveCrew.length <= aliveImpostors.length) {
-      // Only end game if kills are resolved (not pending)
-      const hasPending = Object.values(players).some(p => p.pendingKill);
-      if (!hasPending) {
-        await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'impostor', [GAME_REF+'/endReason']: 'Impostors outnumber the crew. Impostor wins!' });
-      }
+      await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'impostor', [GAME_REF+'/endReason']: 'Impostors outnumber the crew. Impostor wins!' });
     } else if (allDone) {
       await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'crewmates', [GAME_REF+'/endReason']: 'All tasks completed. Crewmates win!' });
     }
@@ -1268,9 +1302,9 @@
       return;
     }
     myPhotoReviews = {};
-    // Check if I am the contestor — if so I cannot vote
+    // Contestor (the victim) cannot vote on their own kill
     const iContested = entries.some(([, e]) => e.victimId === myPlayerId);
-    const canVote = !iContested;
+    const canVote = !iContested; // dead players CAN vote
     el.innerHTML = entries.map(([killId, e]) => {
       const adminButtons = isAdmin ? `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; padding-top:6px; border-top:0.5px solid var(--border);">
@@ -1344,8 +1378,8 @@
       if (gameState?.adminForceVerdict?.[killId]) continue;
       // Exclude the contestor from voter count
       const eligibleVoters = Object.values(gameState.players||{})
-        .filter(p => (p.alive || p.pendingKill) && p.name !== '' && Object.keys(gameState.players).find(k=>gameState.players[k]===p) !== e.victimId);
-      const totalVoters = eligibleVoters.length;
+        .filter(p => p.name !== '' && p.role !== undefined);
+      const totalVoters = Math.max(1, eligibleVoters.length - 1); // exclude the victim
       const reviewsSnap = await get(ref(db, GAME_REF+'/photoReviews/'+killId));
       const existing = reviewsSnap.exists() ? reviewsSnap.val() : {};
       if (myPhotoReviews[killId] && e.victimId !== myPlayerId) {
@@ -1596,14 +1630,15 @@
     const killRef = await push(ref(db, GAME_REF+'/pendingKills'), killData);
     killTarget = null; killPhotoData = null;
     showToast('Kill initiated — victim will be notified in 60s');
-    // After 60s, reveal kill to victim
+    // After killRevealDelay, reveal kill to victim
+    const revealDelay = (settings.killRevealDelay || 60) * 1000;
     setTimeout(async () => {
       const kSnap = await get(ref(db, GAME_REF+'/pendingKills/'+killRef.key));
       if (!kSnap.exists()) return;
       const k = kSnap.val();
       if (k.resolved) return;
       await update(ref(db, GAME_REF+'/pendingKills/'+killRef.key), { revealed: true });
-    }, 60000);
+    }, revealDelay);
   }
 
   window.openProof = function(missionIdx) {
@@ -1879,8 +1914,13 @@
   }
 
   window.openAdminFloat = async function() {
-    // Load live cooldown
+    // Load all live settings
     document.getElementById('admin-live-cooldown').value = settings.cooldown || 120;
+    document.getElementById('admin-live-meeting').value = settings.meetingDuration || 300;
+    document.getElementById('admin-live-vote').value = settings.voteDuration || 60;
+    document.getElementById('admin-live-emergency').value = settings.emergencyCooldown || 180;
+    document.getElementById('admin-live-review').value = settings.reviewDuration || 30;
+    document.getElementById('admin-live-reveal-delay').value = settings.killRevealDelay || 60;
     // Render player list with life controls
     const snap = await get(ref(db, GAME_REF+'/players'));
     const el = document.getElementById('admin-float-players');
@@ -1935,11 +1975,15 @@
   }
 
   window.updateLiveCooldown = async function() {
-    const val = parseInt(document.getElementById('admin-live-cooldown').value)||120;
-    settings.cooldown = val;
-    await update(ref(db), { [SETTINGS_REF+'/cooldown']: val });
-    closeOverlay('overlay-admin-float');
-    showToast('Cooldown updated to ' + val + 's');
+    await saveLiveSetting('cooldown', 'admin-live-cooldown');
+  }
+
+  window.saveLiveSetting = async function(key, inputId) {
+    const val = parseInt(document.getElementById(inputId).value);
+    if (!val || val < 1) { showToast('Invalid value'); return; }
+    settings[key] = val;
+    await update(ref(db), { [SETTINGS_REF+'/'+key]: val });
+    showToast(key + ' updated to ' + val);
   }
 
   function listenReports() {
@@ -1970,6 +2014,16 @@
     await remove(ref(db, GAME_REF));
     showToast('Game reset');
     loadAdminGameState();
+  }
+
+  window.adminResetGame = async function() {
+    closeOverlay('overlay-admin-float');
+    await remove(ref(db, GAME_REF));
+    roleRevealed = false;
+    currentPhase = 'lobby';
+    showToast('Game reset');
+    showScreen('screen-lobby');
+    listenLobby();
   }
 
   // QR scan handler
