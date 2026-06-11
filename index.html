@@ -490,6 +490,58 @@
   </div>
 </div>
 
+<!-- OVERLAY: Co-op -->
+<div class="overlay" id="overlay-coop">
+  <div class="overlay-box" style="text-align:center;">
+    <h3 id="coop-title" style="margin-bottom:8px;">Co-op mission</h3>
+    <div id="coop-desc" style="font-size:13px; color:var(--muted); margin-bottom:16px;"></div>
+
+    <!-- Step: choose role (start or join) -->
+    <div id="coop-step-choose">
+      <button class="btn btn-primary" onclick="coopStart()" style="margin-bottom:8px;">Start — I'll host</button>
+      <button class="btn btn-ghost" onclick="coopShowJoin()" style="margin-bottom:8px;">Join with a code</button>
+      <button class="btn btn-ghost" onclick="closeOverlay('overlay-coop')">Cancel</button>
+    </div>
+
+    <!-- Step: host shows code -->
+    <div id="coop-step-host" style="display:none;">
+      <div style="font-size:13px; color:var(--muted); margin-bottom:8px;">Share this code with your partner:</div>
+      <div id="coop-code-display" style="font-size:42px; font-weight:700; letter-spacing:8px; color:var(--crew); margin-bottom:16px;"></div>
+      <div id="coop-host-status" style="font-size:13px; color:var(--muted); margin-bottom:12px;">Waiting for partner to join...</div>
+      <button class="btn btn-ghost" onclick="coopCancel()">Cancel</button>
+    </div>
+
+    <!-- Step: joiner enters code -->
+    <div id="coop-step-join" style="display:none;">
+      <div class="label">Enter partner's code</div>
+      <input type="text" id="coop-join-code" placeholder="4-digit code" maxlength="4" inputmode="numeric" style="text-align:center; font-size:24px; letter-spacing:6px;" />
+      <div class="spacer"></div>
+      <button class="btn btn-primary" onclick="coopJoin()">Join</button>
+      <div class="spacer"></div>
+      <button class="btn btn-ghost" onclick="closeOverlay('overlay-coop')">Cancel</button>
+    </div>
+
+    <!-- Step: timer (chilling) -->
+    <div id="coop-step-timer" style="display:none;">
+      <div style="font-size:48px; font-weight:700; color:var(--crew); margin:16px 0;" id="coop-timer-display">60</div>
+      <div style="font-size:13px; color:var(--muted);">Stay together until the timer ends</div>
+    </div>
+
+    <!-- Step: pick winner -->
+    <div id="coop-step-winner" style="display:none;">
+      <div style="font-size:14px; font-weight:600; margin-bottom:12px;">Who won?</div>
+      <div id="coop-winner-options"></div>
+    </div>
+
+    <!-- Step: done -->
+    <div id="coop-step-done" style="display:none;">
+      <div style="font-size:48px; margin:16px 0;">✓</div>
+      <div id="coop-done-msg" style="font-size:15px; font-weight:600; margin-bottom:16px;"></div>
+      <button class="btn btn-primary" onclick="closeOverlay('overlay-coop')">Done</button>
+    </div>
+  </div>
+</div>
+
 <!-- OVERLAY: Report player -->
 <div class="overlay" id="overlay-report">
   <div class="overlay-box">
@@ -633,6 +685,16 @@
 
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
+
+  // Fisher-Yates shuffle — uniform, unbiased
+  function shuffle(array) {
+    const a = [...array];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
 
   let faceApiReady = false;
   let faceApiLoadFailed = false;
@@ -883,13 +945,36 @@
       return;
     }
     const impostorCount = Math.min(settings.impostorCount || 1, Math.floor(ids.length / 2));
-    const shuffledIds = [...ids].sort(() => Math.random() - 0.5);
+    const shuffledIds = shuffle(ids);
     const impostorIds = new Set(shuffledIds.slice(0, impostorCount));
     const updates = {};
+    // Separate co-op missions (unique per game) from normal ones
+    const activeMissions = allMissions.filter(m => m.active !== false);
+    const coopPool = shuffle(activeMissions.filter(m => m.category === 'coop'));
+    const normalPool = activeMissions.filter(m => m.category !== 'coop');
+    let coopIndex = 0;
+    const tasksPerPlayer = settings.tasksPerPlayer || 3;
     ids.forEach((id) => {
       updates[GAME_REF + '/players/' + id + '/role'] = impostorIds.has(id) ? 'impostor' : 'crewmate';
-      updates[GAME_REF + '/players/' + id + '/missions'] = assignMissions();
       updates[GAME_REF + '/players/' + id + '/lives'] = settings.lives || 2;
+      // Build mission list: maybe one co-op (unique), rest normal
+      const playerMissions = [];
+      // ~1 in 3 chance to get a co-op if any remain
+      if (coopIndex < coopPool.length && Math.random() < 0.4) {
+        const c = coopPool[coopIndex++];
+        const { id: cid, ...crest } = c;
+        playerMissions.push({ ...crest, done: false });
+      }
+      const remaining = tasksPerPlayer - playerMissions.length;
+      const shuffledNormal = shuffle(normalPool);
+      for (let k = 0; k < remaining && k < shuffledNormal.length; k++) {
+        const { id: nid, ...nrest } = shuffledNormal[k];
+        playerMissions.push({ ...nrest, done: false });
+      }
+      // Convert to keyed object
+      const missionsObj = {};
+      playerMissions.forEach((m, idx) => { missionsObj['m'+idx] = m; });
+      updates[GAME_REF + '/players/' + id + '/missions'] = missionsObj;
     });
     updates[GAME_REF + '/impostorCount'] = impostorCount;
     updates[GAME_REF + '/state'] = 'playing';
@@ -909,7 +994,7 @@
     const count = settings.tasksPerPlayer || 3;
     // Only assign active missions (active === undefined treated as active for legacy)
     const pool = allMissions.filter(m => m.active !== false);
-    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    const shuffled = shuffle(pool);
     return shuffled.slice(0, count).map(m => {
       const { id, ...rest } = m;
       return { ...rest, done: false };
@@ -1111,6 +1196,23 @@
     const isPaused = !!gameState.paused;
     if (myRole === 'crewmate') {
       document.getElementById('dead-notice').style.display = (!me.alive && !me.pendingKill) ? 'block' : 'none';
+      // Shield indicator
+      let shieldEl = document.getElementById('shield-indicator');
+      const shieldUntil = me.shieldUntil || 0;
+      if (Date.now() < shieldUntil) {
+        if (!shieldEl) {
+          shieldEl = document.createElement('div');
+          shieldEl.id = 'shield-indicator';
+          shieldEl.style.cssText = 'background:rgba(55,138,221,0.12); border:0.5px solid rgba(55,138,221,0.4); border-radius:var(--radius); padding:10px 14px; font-size:13px; color:#85B7EB; margin-bottom:16px; text-align:center; font-weight:600;';
+          const tasksTab = document.getElementById('tab-tasks');
+          if (tasksTab) tasksTab.insertBefore(shieldEl, tasksTab.firstChild);
+        }
+        const rem = Math.ceil((shieldUntil - Date.now())/1000);
+        shieldEl.textContent = '🛡 Shielded — ' + rem + 's';
+        shieldEl.style.display = 'block';
+      } else if (shieldEl) {
+        shieldEl.style.display = 'none';
+      }
       document.getElementById('paused-notice').style.display = isPaused ? 'block' : 'none';
       document.getElementById('progress-fill').style.width = progress + '%';
       renderTasks(me);
@@ -1146,6 +1248,22 @@
       document.getElementById('sabotage-banner').style.display = 'block';
     }
     if (myRole === 'crewmate') checkPendingKills();
+    checkShieldHit();
+  }
+
+  let lastShieldHit = 0;
+  function checkShieldHit() {
+    const me = gameState?.players?.[myPlayerId];
+    if (!me) return;
+    const hit = me.shieldHit || 0;
+    if (hit > lastShieldHit && hit > 0) {
+      lastShieldHit = hit;
+      const shieldUntil = me.shieldUntil || 0;
+      if (Date.now() < shieldUntil) {
+        showToast('⚠ You were attacked but your shield protected you!', 5000);
+        if (navigator.vibrate) navigator.vibrate([200,100,200]);
+      }
+    }
   }
 
   function renderImpTasks() {
@@ -1176,11 +1294,11 @@
       <div class="mission-card ${m.done ? 'done' : ''}">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
           <div style="flex:1;">
-            <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location}</div>
+            <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location || ''} ${m.category ? '· '+m.category : ''}</div>
             <div style="font-weight:500;">${m.description}</div>
-            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : '🔢 Secret code required'}</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.category==='coop' ? '👥 Co-op mission' : m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : m.proofType === 'none' ? '✔ No proof' : '🔢 Secret code required'}</div>
           </div>
-          ${m.done ? '<span style="color:var(--green); font-size:18px; flex-shrink:0;">✓</span>' : `<div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;"><button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="openProof(${i})">Complete</button><button class="btn btn-ghost" style="width:auto; padding:5px 12px; font-size:11px;" onclick="rerollTask(${i})">🎲 Reroll</button></div>`}
+          ${m.done ? '<span style="color:var(--green); font-size:18px; flex-shrink:0;">✓</span>' : `<div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;"><button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="${m.category==='coop'?`openCoop(${i})`:`openProof(${i})`}">${m.category==='coop'?'👥 Co-op':'Complete'}</button><button class="btn btn-ghost" style="width:auto; padding:5px 12px; font-size:11px;" onclick="rerollTask(${i})">🎲 Reroll</button></div>`}
         </div>
       </div>
     `).join('');
@@ -1915,6 +2033,193 @@
     try { if (sirenCtx) { sirenCtx.close(); sirenCtx = null; sirenNode = null; } } catch(e) {}
   }
 
+  // ============ CO-OP SYSTEM ============
+  let coopMissionIdx = null;
+  let coopSessionId = null;
+  let coopTimerInterval = null;
+  let coopListener = null;
+
+  window.openCoop = function(missionIdx) {
+    coopMissionIdx = missionIdx;
+    const me = gameState.players[myPlayerId];
+    const missions = Object.values(me.missions || {});
+    const mission = missions[missionIdx];
+    document.getElementById('coop-title').textContent = 'Co-op: ' + mission.location;
+    document.getElementById('coop-desc').textContent = mission.description;
+    // Reset steps
+    ['choose','host','join','timer','winner','done'].forEach(s =>
+      document.getElementById('coop-step-'+s).style.display = 'none');
+    document.getElementById('coop-step-choose').style.display = 'block';
+    document.getElementById('coop-join-code').value = '';
+    document.getElementById('overlay-coop').classList.add('active');
+  }
+
+  function coopMissionType(desc) {
+    const d = (desc||'').toLowerCase();
+    if (d.includes('ping pong')) return 'pingpong';
+    if (d.includes('race')) return 'race';
+    if (d.includes('hang out') || d.includes('together') || d.includes('chill')) return 'chill';
+    return 'generic';
+  }
+
+  window.coopStart = async function() {
+    const code = String(Math.floor(1000 + Math.random()*9000));
+    coopSessionId = code;
+    const me = gameState.players[myPlayerId];
+    const missions = Object.values(me.missions || {});
+    const mission = missions[coopMissionIdx];
+    await set(ref(db, GAME_REF+'/coopSessions/'+code), {
+      hostId: myPlayerId,
+      hostName: myName,
+      hostMissionIdx: coopMissionIdx,
+      description: mission.description,
+      type: coopMissionType(mission.description),
+      joinerId: null,
+      status: 'waiting',
+      createdAt: Date.now()
+    });
+    document.getElementById('coop-step-choose').style.display = 'none';
+    document.getElementById('coop-step-host').style.display = 'block';
+    document.getElementById('coop-code-display').textContent = code;
+    // Listen for joiner
+    if (coopListener) coopListener();
+    coopListener = onValue(ref(db, GAME_REF+'/coopSessions/'+code), (snap) => {
+      if (!snap.exists()) return;
+      const s = snap.val();
+      if (s.status === 'joined' && s.joinerId) {
+        document.getElementById('coop-host-status').textContent = s.joinerName + ' joined!';
+        proceedCoop(s, true);
+      }
+      if (s.status === 'complete') {
+        handleCoopComplete(s, true);
+      }
+    });
+  }
+
+  window.coopShowJoin = function() {
+    document.getElementById('coop-step-choose').style.display = 'none';
+    document.getElementById('coop-step-join').style.display = 'block';
+  }
+
+  window.coopJoin = async function() {
+    const code = document.getElementById('coop-join-code').value.trim();
+    if (code.length !== 4) { showToast('Enter the 4-digit code'); return; }
+    const snap = await get(ref(db, GAME_REF+'/coopSessions/'+code));
+    if (!snap.exists()) { showToast('Code not found'); return; }
+    const s = snap.val();
+    if (s.joinerId) { showToast('Session already full'); return; }
+    if (s.hostId === myPlayerId) { showToast('You cannot join your own session'); return; }
+    coopSessionId = code;
+    await update(ref(db, GAME_REF+'/coopSessions/'+code), {
+      joinerId: myPlayerId,
+      joinerName: myName,
+      status: 'joined'
+    });
+    // Listen for session updates
+    if (coopListener) coopListener();
+    coopListener = onValue(ref(db, GAME_REF+'/coopSessions/'+code), (snap2) => {
+      if (!snap2.exists()) return;
+      const s2 = snap2.val();
+      if (s2.status === 'complete') handleCoopComplete(s2, false);
+    });
+    proceedCoop(s, false);
+  }
+
+  function proceedCoop(session, isHost) {
+    ['choose','host','join'].forEach(s => document.getElementById('coop-step-'+s).style.display = 'none');
+    const type = session.type;
+    if (type === 'chill') {
+      // 60s timer
+      document.getElementById('coop-step-timer').style.display = 'block';
+      let rem = 60;
+      document.getElementById('coop-timer-display').textContent = rem;
+      if (coopTimerInterval) clearInterval(coopTimerInterval);
+      coopTimerInterval = setInterval(async () => {
+        rem--;
+        document.getElementById('coop-timer-display').textContent = rem;
+        if (rem <= 0) {
+          clearInterval(coopTimerInterval);
+          // Host finalizes: joiner gets shield, host gets completion
+          if (isHost) {
+            await update(ref(db, GAME_REF+'/coopSessions/'+coopSessionId), { status: 'complete', winner: 'chill' });
+          }
+        }
+      }, 1000);
+    } else if (type === 'pingpong' || type === 'race') {
+      // Pick winner — only host picks to avoid conflict
+      document.getElementById('coop-step-winner').style.display = 'block';
+      const opts = document.getElementById('coop-winner-options');
+      if (isHost) {
+        opts.innerHTML = `
+          <button class="btn btn-primary" style="margin-bottom:8px;" onclick="coopPickWinner('${session.hostId}')">${session.hostName} (you)</button>
+          <button class="btn btn-primary" onclick="coopPickWinner('${session.joinerId||myPlayerId}')">${session.joinerName||'Partner'}</button>`;
+      } else {
+        opts.innerHTML = '<div style="font-size:13px; color:var(--muted);">Waiting for host to record the winner...</div>';
+      }
+    } else {
+      // generic — host marks complete
+      if (isHost) {
+        update(ref(db, GAME_REF+'/coopSessions/'+coopSessionId), { status: 'complete', winner: 'generic' });
+      }
+    }
+  }
+
+  window.coopPickWinner = async function(winnerId) {
+    await update(ref(db, GAME_REF+'/coopSessions/'+coopSessionId), { status: 'complete', winner: winnerId });
+  }
+
+  async function handleCoopComplete(session, isHost) {
+    if (coopTimerInterval) clearInterval(coopTimerInterval);
+    if (coopListener) { coopListener(); coopListener = null; }
+    const type = session.type;
+    const updates = {};
+    let myMsg = 'Co-op complete!';
+
+    // Mark host's mission done
+    const hostMissionKey = 'm' + session.hostMissionIdx;
+    updates[GAME_REF+'/players/'+session.hostId+'/missions/'+hostMissionKey+'/done'] = true;
+
+    if (type === 'chill') {
+      // joiner gets 3min shield, host gets completion
+      const joinerId = session.joinerId;
+      updates[GAME_REF+'/players/'+joinerId+'/shieldUntil'] = Date.now() + 3*60*1000;
+      myMsg = isHost ? 'Task complete!' : 'You got a 3-minute shield! 🛡';
+    } else if (type === 'pingpong') {
+      // winner gets 5min shield
+      if (session.winner && session.winner !== 'chill' && session.winner !== 'generic') {
+        updates[GAME_REF+'/players/'+session.winner+'/shieldUntil'] = Date.now() + 5*60*1000;
+        const winnerWon = session.winner === myPlayerId;
+        myMsg = winnerWon ? 'You won! 5-minute shield 🛡' : 'You lost the match.';
+      }
+    } else if (type === 'race') {
+      // winner gets +1 life
+      if (session.winner && session.winner !== 'chill' && session.winner !== 'generic') {
+        const w = gameState.players?.[session.winner];
+        updates[GAME_REF+'/players/'+session.winner+'/lives'] = (w?.lives || 0) + 1;
+        const winnerWon = session.winner === myPlayerId;
+        myMsg = winnerWon ? 'You won! +1 life ❤️' : 'You lost the race.';
+      }
+    }
+
+    await update(ref(db), updates);
+    // Clean up session
+    await remove(ref(db, GAME_REF+'/coopSessions/'+coopSessionId));
+
+    ['choose','host','join','timer','winner'].forEach(s => document.getElementById('coop-step-'+s).style.display = 'none');
+    document.getElementById('coop-step-done').style.display = 'block';
+    document.getElementById('coop-done-msg').textContent = myMsg;
+  }
+
+  window.coopCancel = async function() {
+    if (coopSessionId) {
+      await remove(ref(db, GAME_REF+'/coopSessions/'+coopSessionId));
+      coopSessionId = null;
+    }
+    if (coopListener) { coopListener(); coopListener = null; }
+    if (coopTimerInterval) clearInterval(coopTimerInterval);
+    closeOverlay('overlay-coop');
+  }
+
   window.callEmergency = async function() {
     if (gameState.meetingActive || gameState.votingActive) return;
     const now = Date.now();
@@ -1998,6 +2303,19 @@
     }
     closeOverlay('overlay-kill');
     const victimName = killTargetName || gameState.players[killTarget]?.name || 'Unknown';
+    // Check shield
+    const targetPlayer = gameState.players[killTarget];
+    const shieldUntil = targetPlayer?.shieldUntil || 0;
+    if (Date.now() < shieldUntil) {
+      // Attack consumed, cooldown applied, but no kill — notify both
+      await update(ref(db), {
+        [GAME_REF+'/killCooldownUntil']: Date.now() + (settings.cooldown||120)*1000,
+        [GAME_REF+'/players/'+killTarget+'/shieldHit']: Date.now()
+      });
+      showToast('⚠ Target was shielded — attack failed', 4000);
+      killTarget = null; killPhotoData = null;
+      return;
+    }
     const killData = {
       victimId: killTarget, victimName, photo: killPhotoData,
       killedAt: Date.now(), revealAt: Date.now() + 60000, contested: false, resolved: false
