@@ -212,6 +212,8 @@
     <div id="tasks-list"></div>
     <div class="spacer"></div>
     <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="openCoopJoin()">👥 Join a co-op</button>
+    <div class="spacer"></div>
     <button class="btn btn-ghost" id="btn-emergency" onclick="callEmergency()">🚨 Emergency meeting</button>
     <div class="spacer"></div>
     <button class="btn btn-ghost" style="font-size:13px; padding:10px;" onclick="openReport()">⚠ Report player</button>
@@ -261,6 +263,8 @@
   <div id="imp-tab-tasks" style="display:none">
     <div style="font-size:13px; color:var(--muted); margin-bottom:12px; padding:8px; background:rgba(226,75,74,0.08); border-radius:var(--radius-sm);">Your tasks don't count toward crew progress — but completing them helps you blend in.</div>
     <div id="imp-tasks-list"></div>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="openCoopJoin()">👥 Join a co-op</button>
   </div>
   <div id="imp-tab-sabotage" style="display:none">
     <div class="label">Sabotage</div>
@@ -796,26 +800,8 @@
     if (snap.exists()) {
       allMissions = Object.entries(snap.val()).map(([id, m]) => ({ id, ...m }));
     } else {
-      await seedDefaultMissions();
+      allMissions = [];
     }
-  }
-
-  async function seedDefaultMissions() {
-    const defaults = [
-      { location: 'Park', description: 'Find a red bench and photograph it', proofType: 'photo' },
-      { location: 'Park', description: 'Count how many trees you can see from the main path', proofType: 'code', code: '0000' },
-      { location: 'Café', description: 'Order something and photograph the receipt', proofType: 'photo' },
-      { location: 'Café', description: 'Find the opening hours sign and enter the closing time (HHMM)', proofType: 'code', code: '2200' },
-      { location: 'Square', description: 'Photograph the main monument or fountain', proofType: 'photo' },
-      { location: 'Square', description: 'Count the benches in the square', proofType: 'code', code: '0000' },
-      { location: 'Library', description: 'Find a book with a city in the title and photograph it', proofType: 'photo' },
-      { location: 'Metro', description: 'Photograph the departure board', proofType: 'photo' },
-      { location: 'Market', description: 'Photograph a fruit stall', proofType: 'photo' },
-      { location: 'Bridge', description: 'Photograph the view from the middle of the bridge', proofType: 'photo' },
-      { location: 'Grocery', description: 'Enter a grocery store and ask for 6/7 of any food item, then leave', proofType: 'photo' },
-    ];
-    for (const m of defaults) await push(ref(db, MISSIONS_REF), m);
-    await loadMissions();
   }
 
   async function tryAutoReconnect() {
@@ -2038,6 +2024,17 @@
   let coopSessionId = null;
   let coopTimerInterval = null;
   let coopListener = null;
+
+  window.openCoopJoin = function() {
+    coopMissionIdx = null; // joining as a favor, no own mission
+    document.getElementById('coop-title').textContent = 'Join a co-op';
+    document.getElementById('coop-desc').textContent = "Enter your partner's code to join.";
+    ['choose','host','join','timer','winner','done'].forEach(s =>
+      document.getElementById('coop-step-'+s).style.display = 'none');
+    document.getElementById('coop-step-join').style.display = 'block';
+    document.getElementById('coop-join-code').value = '';
+    document.getElementById('overlay-coop').classList.add('active');
+  }
 
   window.openCoop = function(missionIdx) {
     coopMissionIdx = missionIdx;
