@@ -301,6 +301,10 @@
     <div class="label">Evidence board</div>
     <div id="evidence-list" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;"></div>
   </div>
+  <div style="margin-top:24px;" id="audio-evidence-wrap" style="display:none;">
+    <div class="label">Audio recordings</div>
+    <div id="audio-evidence-list" style="margin-top:10px;"></div>
+  </div>
   <div class="gap"></div>
   <div id="new-game-wrap" style="margin-top:24px;">
     <button class="btn btn-primary" onclick="newGame()" id="btn-new-game" style="display:none">New game (admin)</button>
@@ -412,6 +416,7 @@
     <select id="mission-proof">
       <option value="photo">Photo</option>
       <option value="code">Secret code</option>
+      <option value="audio">Audio recording</option>
     </select>
     <div id="mission-code-wrapper" style="display:none">
       <div class="spacer"></div>
@@ -455,6 +460,16 @@
     <div id="proof-code-section" style="display:none">
       <div class="label">Enter the secret code</div>
       <input type="text" id="proof-code-input" placeholder="4-digit code" maxlength="4" />
+    </div>
+    <div id="proof-audio-section" style="display:none">
+      <div class="label">Record audio proof (max 15s)</div>
+      <div style="font-size:13px; color:var(--muted); margin-bottom:10px;">Press record, complete the task, then stop.</div>
+      <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <button class="btn btn-danger" id="btn-start-record" onclick="startAudioRecord()" style="flex:1; padding:10px;">🎙 Record</button>
+        <button class="btn btn-ghost" id="btn-stop-record" onclick="stopAudioRecord()" style="flex:1; padding:10px;" disabled>⏹ Stop</button>
+      </div>
+      <div id="audio-timer" style="font-size:13px; color:var(--muted); text-align:center; display:none;">Recording: <span id="audio-timer-count">0s</span></div>
+      <div id="proof-audio-preview" style="margin-top:8px;"></div>
     </div>
     <div class="spacer"></div>
     <button class="btn btn-success" id="btn-submit-proof" onclick="submitProof()" disabled>Complete task</button>
@@ -624,6 +639,10 @@
   let killTargetName = null;
   let currentProofMission = null;
   let proofPhotoData = null;
+  let proofAudioData = null;
+  let mediaRecorder = null;
+  let audioChunks = [];
+  let audioTimerInterval = null;
   let killPhotoData = null;
   let killStream = null;
   let voteTimerInterval = null;
@@ -700,6 +719,7 @@
       { location: 'Metro', description: 'Photograph the departure board', proofType: 'photo' },
       { location: 'Market', description: 'Photograph a fruit stall', proofType: 'photo' },
       { location: 'Bridge', description: 'Photograph the view from the middle of the bridge', proofType: 'photo' },
+      { location: 'Grocery', description: 'Enter a grocery store and ask for 6/7 of any food item, then leave', proofType: 'photo' },
     ];
     for (const m of defaults) await push(ref(db, MISSIONS_REF), m);
     await loadMissions();
@@ -1105,7 +1125,7 @@
           <div style="flex:1;">
             <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location}</div>
             <div style="font-weight:500;">${m.description}</div>
-            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo' : '🔢 Code'}</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo' : m.proofType === 'audio' ? '🎙 Audio' : '🔢 Code'}</div>
           </div>
           ${m.done ? '<span style="color:var(--green); font-size:18px; flex-shrink:0;">✓</span>' : `<button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="openProof(${i})">Complete</button>`}
         </div>
@@ -1122,7 +1142,7 @@
           <div style="flex:1;">
             <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location}</div>
             <div style="font-weight:500;">${m.description}</div>
-            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo required' : '🔢 Secret code required'}</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : '🔢 Secret code required'}</div>
           </div>
           ${m.done ? '<span style="color:var(--green); font-size:18px; flex-shrink:0;">✓</span>' : `<button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="openProof(${i})">Complete</button>`}
         </div>
@@ -1161,10 +1181,23 @@
     }).join('');
   }
 
+  let cooldownWasActive = false;
+
   function startCooldownTick() {
     if (cooldownInterval) clearInterval(cooldownInterval);
     cooldownInterval = setInterval(() => {
-      if (gameState && myRole === 'impostor') renderCooldown();
+      if (!gameState || myRole !== 'impostor') return;
+      renderCooldown();
+      const now = Date.now();
+      const until = gameState.killCooldownUntil || 0;
+      const isActive = now < until;
+      // When cooldown just expired, re-render kill list to enable buttons
+      if (cooldownWasActive && !isActive) {
+        const players = gameState.players || {};
+        const alive = Object.values(players).filter(p => p.alive);
+        renderKillList(alive.filter(p => p.role !== 'impostor'));
+      }
+      cooldownWasActive = isActive;
     }, 250);
   }
 
@@ -1362,26 +1395,57 @@
   }
 
   async function renderEvidenceBoard() {
+    // Kill photos
     const snap = await get(ref(db, GAME_REF+'/evidence'));
     const el = document.getElementById('evidence-list');
-    if (!snap.exists()) { el.innerHTML = '<div style="color:var(--muted); font-size:13px; grid-column:1/-1;">No kills recorded.</div>'; return; }
-    // Deduplicate by victimId — keep only the earliest kill per victim
-    const all = Object.values(snap.val());
-    const seen = new Set();
-    const entries = all.filter(e => {
-      if (seen.has(e.victimId)) return false;
-      seen.add(e.victimId);
-      return true;
-    });
-    el.innerHTML = entries.map(e => `
-      <div style="background:var(--bg2); border:0.5px solid var(--border); border-radius:var(--radius); overflow:hidden;">
-        <img src="${e.photo}" style="width:100%; display:block; aspect-ratio:4/3; object-fit:cover;" />
-        <div style="padding:8px 10px;">
-          <div style="font-weight:600; font-size:13px; color:var(--imp);">💀 ${e.victimName}</div>
-          <div style="font-size:11px; color:var(--muted); margin-top:2px;">${new Date(e.killedAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+    if (!snap.exists()) {
+      el.innerHTML = '<div style="color:var(--muted); font-size:13px; grid-column:1/-1;">No kills recorded.</div>';
+    } else {
+      const all = Object.values(snap.val());
+      const seen = new Set();
+      const entries = all.filter(e => {
+        if (seen.has(e.victimId)) return false;
+        seen.add(e.victimId);
+        return true;
+      });
+      el.innerHTML = entries.map(e => `
+        <div style="background:var(--bg2); border:0.5px solid var(--border); border-radius:var(--radius); overflow:hidden;">
+          <img src="${e.photo}" style="width:100%; display:block; aspect-ratio:4/3; object-fit:cover;" />
+          <div style="padding:8px 10px;">
+            <div style="font-weight:600; font-size:13px; color:var(--imp);">💀 ${e.victimName}</div>
+            <div style="font-size:11px; color:var(--muted); margin-top:2px;">${new Date(e.killedAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `).join('');
+    }
+
+    // Audio proofs from completed missions
+    const playersSnap = await get(ref(db, GAME_REF+'/players'));
+    const audioEl = document.getElementById('audio-evidence-list');
+    const audioWrap = document.getElementById('audio-evidence-wrap');
+    if (!playersSnap.exists()) return;
+    const players = playersSnap.val();
+    const audioEntries = [];
+    Object.values(players).forEach(p => {
+      const missions = Object.values(p.missions || {});
+      missions.forEach(m => {
+        if (m.done && m.audioProof) {
+          audioEntries.push({ playerName: p.name, location: m.location, description: m.description, audio: m.audioProof });
+        }
+      });
+    });
+    if (!audioEntries.length) {
+      audioWrap.style.display = 'none';
+    } else {
+      audioWrap.style.display = 'block';
+      audioEl.innerHTML = audioEntries.map(a => `
+        <div style="background:var(--bg2); border:0.5px solid var(--border); border-radius:var(--radius); padding:12px; margin-bottom:10px;">
+          <div style="font-weight:600; font-size:13px; margin-bottom:2px;">🎙 ${a.playerName}</div>
+          <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">${a.location} — ${a.description}</div>
+          <audio controls src="${a.audio}" style="width:100%;"></audio>
+        </div>
+      `).join('');
+    }
   }
 
   function showRecap(recap, g) {
@@ -1711,9 +1775,9 @@
     if (remainingLives <= 0) {
       // No lives left — die for real
       updates[GAME_REF+'/players/'+myPlayerId+'/alive'] = false;
-      if (killData) await push(ref(db, GAME_REF+'/evidence'), killData);
     }
-    // If lives > 0, player survives but loses one life (already deducted in confirmKill)
+    // Always save photo to evidence board regardless of lives
+    if (killData) await push(ref(db, GAME_REF+'/evidence'), killData);
     await update(ref(db), updates);
     checkWinConditions();
   }
@@ -1904,12 +1968,18 @@
     currentProofMission = { mission: missions[missionIdx], idx: missionIdx };
     document.getElementById('proof-mission-title').textContent = missions[missionIdx].location;
     document.getElementById('proof-mission-desc').textContent = missions[missionIdx].description;
-    const isPhoto = missions[missionIdx].proofType === 'photo';
-    document.getElementById('proof-photo-section').style.display = isPhoto ? 'block' : 'none';
-    document.getElementById('proof-code-section').style.display = isPhoto ? 'none' : 'block';
+    const proofType = missions[missionIdx].proofType;
+    document.getElementById('proof-photo-section').style.display = proofType === 'photo' ? 'block' : 'none';
+    document.getElementById('proof-code-section').style.display = proofType === 'code' ? 'block' : 'none';
+    document.getElementById('proof-audio-section').style.display = proofType === 'audio' ? 'block' : 'none';
     document.getElementById('proof-photo-preview').innerHTML = '';
     document.getElementById('proof-code-input').value = '';
+    document.getElementById('proof-audio-preview').innerHTML = '';
+    document.getElementById('btn-start-record').disabled = false;
+    document.getElementById('btn-stop-record').disabled = true;
+    document.getElementById('audio-timer').style.display = 'none';
     proofPhotoData = null;
+    proofAudioData = null;
     document.getElementById('btn-submit-proof').disabled = true;
     document.getElementById('overlay-proof').classList.add('active');
   }
@@ -1926,6 +1996,50 @@
     reader.readAsDataURL(file);
   }
 
+  window.startAudioRecord = async function() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          proofAudioData = ev.target.result;
+          document.getElementById('proof-audio-preview').innerHTML =
+            `<audio controls src="${proofAudioData}" style="width:100%; margin-top:4px;"></audio>`;
+          document.getElementById('btn-submit-proof').disabled = false;
+        };
+        reader.readAsDataURL(blob);
+        stream.getTracks().forEach(t => t.stop());
+        clearInterval(audioTimerInterval);
+        document.getElementById('audio-timer').style.display = 'none';
+        document.getElementById('btn-start-record').disabled = false;
+        document.getElementById('btn-stop-record').disabled = true;
+      };
+      mediaRecorder.start();
+      document.getElementById('btn-start-record').disabled = true;
+      document.getElementById('btn-stop-record').disabled = false;
+      document.getElementById('audio-timer').style.display = 'block';
+      let secs = 0;
+      document.getElementById('audio-timer-count').textContent = '0s';
+      audioTimerInterval = setInterval(() => {
+        secs++;
+        document.getElementById('audio-timer-count').textContent = secs + 's';
+        if (secs >= 15) stopAudioRecord();
+      }, 1000);
+    } catch(e) {
+      showToast('Microphone not available');
+    }
+  }
+
+  window.stopAudioRecord = function() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+  }
+
   document.getElementById('proof-code-input').addEventListener('input', function() {
     document.getElementById('btn-submit-proof').disabled = this.value.length < 1;
   });
@@ -1937,12 +2051,20 @@
       const entered = document.getElementById('proof-code-input').value.trim();
       if (entered !== mission.code) { showToast('Wrong code — try again'); return; }
     }
+    if (mission.proofType === 'audio' && !proofAudioData) {
+      showToast('Record audio first'); return;
+    }
     const me = gameState.players[myPlayerId];
     const missionKeys = Object.keys(me.missions || {});
     const missionKey = missionKeys[idx];
-    await update(ref(db), { [GAME_REF+'/players/'+myPlayerId+'/missions/'+missionKey+'/done']: true });
+    const missionUpdates = { [GAME_REF+'/players/'+myPlayerId+'/missions/'+missionKey+'/done']: true };
+    if (mission.proofType === 'audio' && proofAudioData) {
+      missionUpdates[GAME_REF+'/players/'+myPlayerId+'/missions/'+missionKey+'/audioProof'] = proofAudioData;
+    }
+    await update(ref(db), missionUpdates);
     closeOverlay('overlay-proof');
     showToast('Task completed!');
+    proofAudioData = null;
     checkWinConditions();
   }
 
@@ -2047,7 +2169,7 @@
       <div class="card" style="margin-bottom:8px;">
         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
           <div>
-            <div style="font-size:12px; color:var(--muted);">${m.location} · ${m.proofType}</div>
+            <div style="font-size:12px; color:var(--muted);">${m.location} · ${m.proofType === 'audio' ? '🎙 audio' : m.proofType}</div>
             <div style="font-size:14px; margin-top:2px;">${m.description}</div>
             ${m.proofType==='code' ? `<div style="font-size:12px; color:var(--amber); margin-top:2px;">Code: ${m.code}</div>` : ''}
           </div>
