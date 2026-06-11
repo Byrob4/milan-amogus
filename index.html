@@ -412,11 +412,20 @@
     <div class="label">Description</div>
     <input type="text" id="mission-desc" placeholder="e.g. Find a red bench and photograph it" />
     <div class="spacer"></div>
+    <div class="label">Category</div>
+    <select id="mission-category">
+      <option value="exploration">Exploration</option>
+      <option value="social">Social</option>
+      <option value="puzzle">Puzzle</option>
+      <option value="coop">Co-op</option>
+    </select>
+    <div class="spacer"></div>
     <div class="label">Proof type</div>
     <select id="mission-proof">
       <option value="photo">Photo</option>
       <option value="code">Secret code</option>
       <option value="audio">Audio recording</option>
+      <option value="none">No proof</option>
     </select>
     <div id="mission-code-wrapper" style="display:none">
       <div class="spacer"></div>
@@ -460,6 +469,9 @@
     <div id="proof-code-section" style="display:none">
       <div class="label">Enter the secret code</div>
       <input type="text" id="proof-code-input" placeholder="4-digit code" maxlength="4" />
+    </div>
+    <div id="proof-none-section" style="display:none">
+      <div style="font-size:13px; color:var(--muted); text-align:center; padding:8px 0;">Complete this task on the honor system — no proof required.</div>
     </div>
     <div id="proof-audio-section" style="display:none">
       <div class="label">Record audio proof (max 15s)</div>
@@ -889,8 +901,13 @@
 
   function assignMissions() {
     const count = settings.tasksPerPlayer || 3;
-    const shuffled = [...allMissions].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, count).map(m => ({ ...m, done: false }));
+    // Only assign active missions (active === undefined treated as active for legacy)
+    const pool = allMissions.filter(m => m.active !== false);
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, count).map(m => {
+      const { id, ...rest } = m;
+      return { ...rest, done: false };
+    });
   }
 
   function showRoleReveal() {
@@ -1985,6 +2002,12 @@
     document.getElementById('proof-photo-section').style.display = proofType === 'photo' ? 'block' : 'none';
     document.getElementById('proof-code-section').style.display = proofType === 'code' ? 'block' : 'none';
     document.getElementById('proof-audio-section').style.display = proofType === 'audio' ? 'block' : 'none';
+    const noneSection = document.getElementById('proof-none-section');
+    if (noneSection) noneSection.style.display = proofType === 'none' ? 'block' : 'none';
+    // For "none" proof, enable submit immediately
+    if (proofType === 'none') {
+      setTimeout(() => { document.getElementById('btn-submit-proof').disabled = false; }, 0);
+    }
     document.getElementById('proof-photo-preview').innerHTML = '';
     document.getElementById('proof-code-input').value = '';
     document.getElementById('proof-audio-preview').innerHTML = '';
@@ -2067,6 +2090,7 @@
     if (mission.proofType === 'audio' && !proofAudioData) {
       showToast('Record audio first'); return;
     }
+    // 'none' proof type — no validation, just complete
     const me = gameState.players[myPlayerId];
     const missionKeys = Object.keys(me.missions || {});
     const missionKey = missionKeys[idx];
@@ -2167,23 +2191,70 @@
     await loadMissions();
     const el = document.getElementById('admin-float-missions-list');
     if (!el) return;
-    if (!allMissions.length) { el.innerHTML = '<div style="color:var(--muted); font-size:13px;">No missions yet.</div>'; return; }
-    el.innerHTML = allMissions.map(m => `
-      <div style="background:var(--bg3); border-radius:var(--radius-sm); padding:10px; margin-bottom:8px;">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+    let html = `<button class="btn btn-ghost" style="margin-bottom:12px; font-size:13px;" onclick="document.getElementById('import-file-input').click()">⬆ Import missions (JSON)</button>
+      <input type="file" accept="application/json,.json" id="import-file-input" style="display:none" onchange="importMissions(event)" />`;
+    if (!allMissions.length) {
+      el.innerHTML = html + '<div style="color:var(--muted); font-size:13px;">No missions yet.</div>';
+      return;
+    }
+    html += allMissions.map(m => {
+      const catLabel = m.category ? m.category : 'exploration';
+      const proofLabel = m.proofType === 'audio' ? '🎙 audio' : m.proofType === 'none' ? 'no proof' : m.proofType;
+      const isActive = m.active !== false;
+      return `<div style="background:var(--bg3); border-radius:var(--radius-sm); padding:10px; margin-bottom:8px; ${!isActive?'opacity:0.5;':''}">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
           <div style="flex:1;">
-            <div style="font-size:12px; color:var(--muted);">${m.location} · ${m.proofType === 'audio' ? '🎙 audio' : m.proofType}</div>
+            <div style="font-size:12px; color:var(--muted);">${m.location || 'no location'} · ${catLabel} · ${proofLabel}</div>
             <div style="font-size:13px; margin-top:2px;">${m.description}</div>
             ${m.proofType==='code' ? `<div style="font-size:11px; color:var(--amber); margin-top:2px;">Code: ${m.code}</div>` : ''}
           </div>
-          <button onclick="deleteMissionAndRefresh('${m.id}')" style="background:none; border:none; color:var(--imp); cursor:pointer; font-size:18px; padding:0 0 0 8px;">×</button>
+          <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">
+            <button onclick="toggleMissionActive('${m.id}', ${isActive})" style="background:${isActive?'var(--green)':'var(--bg2)'}; color:#fff; border:none; border-radius:4px; padding:3px 8px; font-size:11px; cursor:pointer;">${isActive?'ON':'OFF'}</button>
+            <button onclick="deleteMissionAndRefresh('${m.id}')" style="background:none; border:none; color:var(--imp); cursor:pointer; font-size:16px;">×</button>
+          </div>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
+    el.innerHTML = html;
+  }
+
+  window.toggleMissionActive = async function(id, currentlyActive) {
+    await update(ref(db, MISSIONS_REF+'/'+id), { active: !currentlyActive });
+    loadAdminFloatMissions();
+  }
+
+  window.importMissions = async function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const missions = Array.isArray(parsed) ? parsed : (parsed.missions || []);
+      if (!missions.length) { showToast('No missions found in file'); return; }
+      let imported = 0;
+      for (const m of missions) {
+        // Normalize: catalog uses "proof", app uses "proofType"
+        const mission = {
+          location: m.location || '',
+          description: m.description || '',
+          category: m.category || 'exploration',
+          proofType: m.proofType || m.proof || 'photo',
+          active: m.active !== false
+        };
+        if (mission.proofType === 'code' && m.code) mission.code = m.code;
+        await push(ref(db, MISSIONS_REF), mission);
+        imported++;
+      }
+      showToast(imported + ' missions imported');
+      loadAdminFloatMissions();
+    } catch(err) {
+      showToast('Invalid JSON file');
+    }
   }
 
   window.deleteMissionAndRefresh = async function(id) {
-    await deleteMission(id);
+    await remove(ref(db, MISSIONS_REF+'/'+id));
+    showToast('Mission deleted');
     loadAdminFloatMissions();
   }
 
@@ -2288,6 +2359,7 @@
     document.getElementById('mission-location').value = '';
     document.getElementById('mission-desc').value = '';
     document.getElementById('mission-proof').value = 'photo';
+    document.getElementById('mission-category').value = 'exploration';
     document.getElementById('mission-code').value = '';
     document.getElementById('mission-code-wrapper').style.display = 'none';
     document.getElementById('overlay-add-mission').classList.add('active');
@@ -2301,15 +2373,17 @@
     const location = document.getElementById('mission-location').value.trim();
     const description = document.getElementById('mission-desc').value.trim();
     const proofType = document.getElementById('mission-proof').value;
+    const category = document.getElementById('mission-category').value;
     const code = document.getElementById('mission-code').value.trim();
-    if (!location || !description) { showToast('Fill all fields'); return; }
+    if (!description) { showToast('Enter a description'); return; }
     if (proofType==='code' && !code) { showToast('Enter secret code'); return; }
-    const mission = { location, description, proofType };
+    const mission = { location, description, proofType, category, active: true };
     if (proofType==='code') mission.code = code;
     await push(ref(db, MISSIONS_REF), mission);
     closeOverlay('overlay-add-mission');
     showToast('Mission added');
     loadAdminMissions();
+    loadAdminFloatMissions();
   }
 
   window.deleteMission = async function(id) {
