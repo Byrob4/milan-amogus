@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Among Us — City</title>
+  <link rel="manifest" href="/manifest.json" />
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0e0e12; --bg2: #16161e; --bg3: #1e1e28;
+      --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.15);
+      --text: #f0f0f0; --muted: #888;
+      --crew: #378ADD; --imp: #E24B4A; --green: #3a9e6a; --amber: #e0972a;
+      --radius: 12px; --radius-sm: 8px;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 15px; line-height: 1.5; overflow-x: hidden; }
+    .screen { display: none; flex-direction: column; min-height: 100vh; padding: 24px 20px; max-width: 480px; margin: 0 auto; }
+    .screen.active { display: flex; }
+    h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+    h2 { font-size: 20px; font-weight: 600; }
+    h3 { font-size: 16px; font-weight: 600; }
+    .logo { font-size: 13px; font-weight: 600; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; margin-bottom: 32px; }
+    input[type="text"], input[type="password"], input[type="number"] { width: 100%; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--radius-sm); padding: 12px 14px; color: var(--text); font-size: 15px; outline: none; transition: border-color 0.15s; }
+    input:focus { border-color: var(--crew); }
+    .btn { display: block; width: 100%; padding: 13px; border-radius: var(--radius-sm); font-size: 15px; font-weight: 600; border: none; cursor: pointer; text-align: center; transition: opacity 0.15s, transform 0.1s; }
+    .btn:active { transform: scale(0.98); opacity: 0.85; }
+    .btn-primary { background: var(--crew); color: #fff; }
+    .btn-danger { background: var(--imp); color: #fff; }
+    .btn-ghost { background: var(--bg3); color: var(--text); border: 0.5px solid var(--border2); }
+    .btn-success { background: var(--green); color: #fff; }
+    .btn-amber { background: var(--amber); color: #fff; }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .gap { flex: 1; }
+    .spacer { height: 16px; }
+    .spacer-lg { height: 32px; }
+    .label { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+    .card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 16px; }
+    .pill { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+    .pill-crew { background: rgba(55,138,221,0.15); color: #85B7EB; }
+    .pill-imp { background: rgba(226,75,74,0.15); color: #F09595; }
+    .pill-dead { background: rgba(255,255,255,0.07); color: var(--muted); }
+    .player-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 0.5px solid var(--border); }
+    .player-row:last-child { border-bottom: none; }
+    .player-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .mission-card { background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+    .mission-card.done { opacity: 0.45; }
+    .cooldown-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+    .cooldown-fill { height: 100%; background: var(--imp); border-radius: 2px; transition: width 1s linear; }
+    .vote-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+    .vote-card { background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--radius); padding: 14px; text-align: center; cursor: pointer; transition: border-color 0.15s; }
+    .vote-card.selected { border-color: var(--crew); background: rgba(55,138,221,0.1); }
+    .vote-card.skip { grid-column: 1/-1; }
+    .vote-count { font-size: 22px; font-weight: 700; margin-top: 4px; }
+    .emergency-banner { background: rgba(226,75,74,0.12); border: 1px solid rgba(226,75,74,0.4); border-radius: var(--radius); padding: 16px; text-align: center; margin-bottom: 20px; }
+    .tab-bar { display: flex; gap: 4px; background: var(--bg3); border-radius: var(--radius-sm); padding: 4px; margin-bottom: 20px; }
+    .tab { flex: 1; padding: 8px; text-align: center; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; color: var(--muted); }
+    .tab.active { background: var(--bg2); color: var(--text); }
+    .toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--bg2); border: 0.5px solid var(--border2); border-radius: var(--radius-sm); padding: 12px 20px; font-size: 14px; font-weight: 500; z-index: 999; transition: transform 0.3s ease; white-space: nowrap; }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
+    .overlay.active { display: flex; }
+    .overlay-box { background: var(--bg2); border: 0.5px solid var(--border2); border-radius: var(--radius); padding: 24px; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; }
+    .progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+    .progress-fill { height: 100%; background: var(--green); border-radius: 3px; transition: width 0.3s; }
+    .role-reveal { text-align: center; padding: 32px 0; }
+    .role-icon { font-size: 64px; margin-bottom: 16px; }
+    .role-name { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+    .result-screen { text-align: center; padding: 48px 0; }
+    .result-icon { font-size: 72px; margin-bottom: 24px; }
+    .result-title { font-size: 36px; font-weight: 700; margin-bottom: 12px; }
+    .dead-notice { background: rgba(226,75,74,0.08); border: 0.5px solid rgba(226,75,74,0.3); border-radius: var(--radius); padding: 12px 16px; font-size: 13px; color: #F09595; margin-bottom: 16px; }
+    .meeting-screen { text-align: center; padding: 32px 20px; }
+    .meeting-timer { font-size: 72px; font-weight: 700; color: var(--imp); margin: 16px 0; }
+    select { width: 100%; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--radius-sm); padding: 12px; color: var(--text); font-size: 15px; outline: none; }
+    textarea { width: 100%; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--radius-sm); padding: 12px; color: var(--text); font-size: 14px; min-height: 100px; outline: none; resize: none; }
+    video { width: 100%; border-radius: var(--radius-sm); display: block; }
+    canvas { display: none; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+    .pulse { animation: pulse 1.5s infinite; }
+  </style>
+</head>
+<body>
+
+<!-- JOIN -->
+<div class="screen active" id="screen-join">
+  <div class="logo">Among Us · City · v3</div>
+  <h1>Enter your name</h1>
+  <div class="spacer-lg"></div>
+  <div class="label">Your name</div>
+  <input type="text" id="input-name" placeholder="e.g. Marco" maxlength="20" />
+  <div class="spacer"></div>
+  <button class="btn btn-primary" onclick="joinGame()">Join game</button>
+  <div class="spacer"></div>
+  <button class="btn btn-ghost" onclick="goAdmin()">Admin panel</button>
+</div>
+
+<!-- LOBBY -->
+<div class="screen" id="screen-lobby">
+  <div class="logo">Among Us · City</div>
+  <h2>Waiting for players</h2>
+  <div class="spacer"></div>
+  <div class="label">Players joined</div>
+  <div class="card" id="lobby-players"></div>
+  <div class="spacer"></div>
+  <div id="lobby-status" style="font-size:14px; color:var(--muted); text-align:center;"></div>
+  <div class="gap"></div>
+  <button class="btn btn-primary" id="btn-start" onclick="startGame()" style="display:none">Start game</button>
+  <div class="spacer"></div>
+  <button class="btn btn-ghost" onclick="leaveGame()">Leave</button>
+</div>
+
+<!-- ROLE REVEAL -->
+<div class="screen" id="screen-role">
+  <div class="role-reveal">
+    <div class="role-icon" id="role-icon"></div>
+    <div class="role-name" id="role-name"></div>
+    <div style="color:var(--muted); margin-top:8px; font-size:14px;" id="role-desc"></div>
+  </div>
+  <div class="gap"></div>
+  <button class="btn btn-primary" onclick="goToMain()">I'm ready</button>
+</div>
+
+<!-- MEETING (countdown before vote) -->
+<div class="screen" id="screen-meeting">
+  <div class="meeting-screen">
+    <div style="font-size:13px; font-weight:600; color:var(--imp); letter-spacing:0.08em; margin-bottom:8px;">EMERGENCY MEETING</div>
+    <div style="font-size:16px; color:var(--muted); margin-bottom:4px;">Head to the meeting point</div>
+    <div class="meeting-timer" id="meeting-countdown">5:00</div>
+    <div style="font-size:14px; color:var(--muted);">Voting opens when the timer ends</div>
+    <div style="margin-top:24px; font-size:13px; color:var(--muted);" id="meeting-caller"></div>
+  </div>
+</div>
+
+<!-- MAIN GAME (crewmate) -->
+<div class="screen" id="screen-main">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+    <div>
+      <div class="label">Playing as</div>
+      <div style="font-weight:600;" id="main-playername"></div>
+    </div>
+    <div id="main-role-pill"></div>
+  </div>
+  <div id="dead-notice" class="dead-notice" style="display:none">You have been eliminated. Keep completing tasks — they still count.</div>
+  <div id="paused-notice" style="display:none; background:rgba(224,151,42,0.12); border:0.5px solid rgba(224,151,42,0.4); border-radius:var(--radius); padding:12px 16px; font-size:13px; color:var(--amber); margin-bottom:16px; text-align:center; font-weight:600;">⏸ Game paused by admin</div>
+  <div class="tab-bar">
+    <div class="tab active" onclick="switchTab('tasks')">Tasks</div>
+    <div class="tab" onclick="switchTab('players')">Players</div>
+    <div class="tab" onclick="switchTab('vote')" id="tab-vote-btn" style="display:none">Vote</div>
+  </div>
+  <div id="tab-tasks">
+    <div class="label">Mission progress</div>
+    <div class="progress-bar" style="margin-bottom:16px;"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+    <div id="tasks-list"></div>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" id="btn-emergency" onclick="callEmergency()">🚨 Emergency meeting</button>
+  </div>
+  <div id="tab-players" style="display:none">
+    <div class="label">Alive</div>
+    <div class="card" id="players-alive"></div>
+    <div class="spacer"></div>
+    <div class="label">Eliminated</div>
+    <div class="card" id="players-dead"></div>
+  </div>
+  <div id="tab-vote" style="display:none">
+    <div class="label">Who is the impostor?</div>
+    <div style="font-size:13px; color:var(--muted);">Vote ends in <span id="vote-timer" style="font-weight:600; color:var(--text);">60s</span></div>
+    <div class="vote-grid" id="vote-grid"></div>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" id="btn-confirm-vote" onclick="confirmVote()" disabled>Confirm vote</button>
+  </div>
+</div>
+
+<!-- IMPOSTOR SCREEN -->
+<div class="screen" id="screen-impostor">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+    <div>
+      <div class="label">Playing as</div>
+      <div style="font-weight:600;" id="imp-playername"></div>
+    </div>
+    <span class="pill pill-imp">Impostor</span>
+  </div>
+  <div id="imp-paused-notice" style="display:none; background:rgba(224,151,42,0.12); border:0.5px solid rgba(224,151,42,0.4); border-radius:var(--radius); padding:12px 16px; font-size:13px; color:var(--amber); margin-bottom:16px; text-align:center; font-weight:600;">⏸ Game paused by admin</div>
+  <div class="tab-bar">
+    <div class="tab active" onclick="switchImpTab('kill')">Kill</div>
+    <div class="tab" onclick="switchImpTab('sabotage')">Sabotage</div>
+    <div class="tab" onclick="switchImpTab('players')">Players</div>
+    <div class="tab" onclick="switchImpTab('vote')" id="imp-vote-tab-btn" style="display:none">Vote</div>
+  </div>
+  <div id="imp-tab-kill">
+    <div class="label">Cooldown</div>
+    <div id="cooldown-status" style="font-size:14px; margin-bottom:4px;"></div>
+    <div class="cooldown-bar"><div class="cooldown-fill" id="cooldown-fill" style="width:0%"></div></div>
+    <div class="spacer-lg"></div>
+    <div class="label">Kill a crewmate</div>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">You must be physically near them. Take a secret photo to confirm.</div>
+    <div id="kill-list"></div>
+  </div>
+  <div id="imp-tab-sabotage" style="display:none">
+    <div class="label">Sabotage</div>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:16px;">Send a fake announcement. Use once per game.</div>
+    <div id="sabotage-used-notice" style="display:none; color:var(--imp); font-size:13px; margin-bottom:12px;">Sabotage already used.</div>
+    <textarea id="sabotage-text" placeholder="e.g. Attention: the task at the park has moved to the fountain."></textarea>
+    <div class="spacer"></div>
+    <button class="btn btn-danger" id="btn-sabotage" onclick="sendSabotage()">Send fake announcement</button>
+  </div>
+  <div id="imp-tab-players" style="display:none">
+    <div class="label">Alive</div>
+    <div class="card" id="imp-players-alive"></div>
+    <div class="spacer"></div>
+    <div class="label">Eliminated</div>
+    <div class="card" id="imp-players-dead"></div>
+  </div>
+  <div id="imp-tab-vote" style="display:none">
+    <div class="label">Who is the impostor?</div>
+    <div style="font-size:13px; color:var(--muted);">Vote ends in <span id="imp-vote-timer" style="font-weight:600; color:var(--text);">60s</span></div>
+    <div class="vote-grid" id="imp-vote-grid"></div>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" id="imp-btn-confirm-vote" onclick="confirmVoteImp()" disabled>Confirm vote</button>
+  </div>
+  <div class="gap"></div>
+  <button class="btn btn-ghost" id="imp-btn-emergency" onclick="callEmergency()">🚨 Emergency meeting</button>
+</div>
+
+<!-- RESULT -->
+<div class="screen" id="screen-result">
+  <div class="result-screen">
+    <div class="result-icon" id="result-icon"></div>
+    <div class="result-title" id="result-title"></div>
+    <div style="color:var(--muted); margin-top:8px;" id="result-sub"></div>
+  </div>
+  <div style="margin-top:24px;">
+    <div class="label">Evidence board</div>
+    <div id="evidence-list" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;"></div>
+  </div>
+  <div class="gap"></div>
+  <button class="btn btn-primary" style="margin-top:24px;" onclick="newGame()">New game</button>
+</div>
+
+<!-- SCAN -->
+<div class="screen" id="screen-scan" style="justify-content:center; align-items:center; text-align:center;">
+  <div class="logo" style="margin-bottom:16px;">Among Us · City</div>
+  <div style="font-size:48px; margin-bottom:16px;">📍</div>
+  <h2 id="scan-location-name"></h2>
+  <div class="spacer"></div>
+  <div id="scan-content"></div>
+</div>
+
+<!-- ADMIN -->
+<div class="screen" id="screen-admin">
+  <div class="logo">Admin Panel</div>
+  <div id="admin-auth">
+    <h2>Enter password</h2>
+    <div class="spacer"></div>
+    <input type="password" id="admin-password" placeholder="Password" />
+    <div class="spacer"></div>
+    <button class="btn btn-primary" onclick="adminLogin()">Login</button>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="showScreen('screen-join')">Back</button>
+  </div>
+  <div id="admin-panel" style="display:none">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <h2>Admin</h2>
+      <button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:13px;" onclick="showScreen('screen-join')">Exit</button>
+    </div>
+    <div class="tab-bar">
+      <div class="tab active" onclick="switchAdminTab('missions')">Missions</div>
+      <div class="tab" onclick="switchAdminTab('settings')">Settings</div>
+      <div class="tab" onclick="switchAdminTab('game')">Game</div>
+    </div>
+    <div id="admin-tab-missions">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div class="label" style="margin:0">Missions</div>
+        <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddMission()">+ Add</button>
+      </div>
+      <div id="admin-missions-list"></div>
+    </div>
+    <div id="admin-tab-settings" style="display:none">
+      <div class="label">Kill cooldown (seconds)</div>
+      <input type="number" id="setting-cooldown" value="120" min="30" max="300" />
+      <div class="spacer"></div>
+      <div class="label">Tasks per player</div>
+      <input type="number" id="setting-tasks" value="3" min="1" max="8" />
+      <div class="spacer"></div>
+      <div class="label">Voting duration (seconds)</div>
+      <input type="number" id="setting-vote-duration" value="60" min="30" max="120" />
+      <div class="spacer"></div>
+      <div class="label">Meeting countdown (seconds)</div>
+      <input type="number" id="setting-meeting-duration" value="300" min="60" max="600" />
+      <div class="spacer"></div>
+      <div class="label">Number of impostors</div>
+      <input type="number" id="setting-impostors" value="1" min="1" max="3" />
+      <div class="spacer"></div>
+      <div class="label">Admin password</div>
+      <input type="password" id="setting-password" placeholder="Leave blank to keep current" />
+      <div class="spacer"></div>
+      <button class="btn btn-primary" onclick="saveSettings()">Save settings</button>
+    </div>
+    <div id="admin-tab-game" style="display:none">
+      <div class="label">Current game state</div>
+      <div class="card" id="admin-game-state"></div>
+      <div class="spacer"></div>
+      <div id="admin-pause-btn-wrap">
+        <button class="btn btn-amber" id="btn-pause-game" onclick="togglePauseGame()">Pause game</button>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn btn-danger" onclick="resetGame()">Reset game</button>
+    </div>
+  </div>
+</div>
+
+<!-- OVERLAY: Add mission -->
+<div class="overlay" id="overlay-add-mission">
+  <div class="overlay-box">
+    <h3 style="margin-bottom:16px;">Add mission</h3>
+    <div class="label">Location</div>
+    <input type="text" id="mission-location" placeholder="e.g. Park" />
+    <div class="spacer"></div>
+    <div class="label">Description</div>
+    <input type="text" id="mission-desc" placeholder="e.g. Find a red bench and photograph it" />
+    <div class="spacer"></div>
+    <div class="label">Proof type</div>
+    <select id="mission-proof">
+      <option value="photo">Photo</option>
+      <option value="code">Secret code</option>
+    </select>
+    <div id="mission-code-wrapper" style="display:none">
+      <div class="spacer"></div>
+      <div class="label">Secret code (4 digits)</div>
+      <input type="text" id="mission-code" placeholder="e.g. 4821" maxlength="4" />
+    </div>
+    <div class="spacer"></div>
+    <button class="btn btn-primary" onclick="saveMission()">Save mission</button>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="closeOverlay('overlay-add-mission')">Cancel</button>
+  </div>
+</div>
+
+<!-- OVERLAY: Kill with camera -->
+<div class="overlay" id="overlay-kill">
+  <div class="overlay-box" style="text-align:center;">
+    <div style="font-size:36px; margin-bottom:8px;">📸</div>
+    <h3 id="kill-target-name" style="margin-bottom:4px;"></h3>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:16px;">Take a secret photo to confirm the kill.</div>
+    <video id="kill-video" autoplay playsinline style="display:none; margin-bottom:12px;"></video>
+    <canvas id="kill-canvas"></canvas>
+    <div id="kill-photo-preview" style="margin-bottom:12px;"></div>
+    <div id="face-api-loading" style="font-size:13px; color:var(--amber); margin-bottom:8px;">⏳ Loading face detector, please wait...</div>
+    <button class="btn btn-ghost" id="btn-open-camera" onclick="openKillCamera()" style="margin-bottom:8px;" disabled>📷 Open camera</button>
+    <button class="btn btn-danger" id="btn-take-photo" onclick="takeKillPhoto()" style="display:none; margin-bottom:8px;">Take photo</button>
+    <button class="btn btn-success" id="btn-confirm-kill" onclick="confirmKill()" disabled style="margin-bottom:8px;">Confirm kill</button>
+    <button class="btn btn-ghost" onclick="closeKillOverlay()">Cancel</button>
+  </div>
+</div>
+
+<!-- OVERLAY: Task proof -->
+<div class="overlay" id="overlay-proof">
+  <div class="overlay-box">
+    <h3 style="margin-bottom:8px;" id="proof-mission-title"></h3>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:16px;" id="proof-mission-desc"></div>
+    <div id="proof-photo-section">
+      <div class="label">Take a photo as proof</div>
+      <input type="file" accept="image/*" capture="environment" id="proof-photo-input" style="display:none" onchange="handlePhotoProof(event)" />
+      <button class="btn btn-ghost" onclick="document.getElementById('proof-photo-input').click()">📷 Open camera</button>
+      <div id="proof-photo-preview" style="margin-top:12px;"></div>
+    </div>
+    <div id="proof-code-section" style="display:none">
+      <div class="label">Enter the secret code</div>
+      <input type="text" id="proof-code-input" placeholder="4-digit code" maxlength="4" />
+    </div>
+    <div class="spacer"></div>
+    <button class="btn btn-success" id="btn-submit-proof" onclick="submitProof()" disabled>Complete task</button>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="closeOverlay('overlay-proof')">Cancel</button>
+  </div>
+</div>
+
+<!-- Sabotage banner -->
+<div id="sabotage-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:200; background:rgba(226,75,74,0.95); padding:14px 20px; text-align:center;">
+  <div style="font-size:12px; font-weight:700; letter-spacing:0.08em; margin-bottom:4px;">SYSTEM ANNOUNCEMENT</div>
+  <div id="sabotage-message" style="font-size:14px;"></div>
+  <button onclick="document.getElementById('sabotage-banner').style.display='none'" style="background:none; border:none; color:white; font-size:18px; position:absolute; right:14px; top:50%; transform:translateY(-50%); cursor:pointer;">×</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, set, get, onValue, update, push, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDC4iZM_e8KAyw8dr-9BLQsh7cyA8cL5bM",
+    authDomain: "milan-amogus.firebaseapp.com",
+    databaseURL: "https://milan-amogus-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "milan-amogus",
+    storageBucket: "milan-amogus.firebasestorage.app",
+    messagingSenderId: "893548811938",
+    appId: "1:893548811938:web:956f1dd71b2d90512da9fb"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  let faceApiReady = false;
+  let faceApiLoadFailed = false;
+  async function initFaceApi() {
+    try {
+      const MODEL_URL = '/weights';
+      await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+      faceApiReady = true;
+    } catch(e) {
+      console.warn('face-api failed to load:', e);
+      faceApiLoadFailed = true;
+    }
+    const btn = document.getElementById('btn-open-camera');
+    const notice = document.getElementById('face-api-loading');
+    if (btn) btn.disabled = false;
+    if (notice) notice.style.display = 'none';
+  }
+  initFaceApi();
+
+  const PLAYER_COLORS = ['#E24B4A','#378ADD','#639922','#EF9F27','#7F77DD','#D4537E','#1D9E75','#FF8C00'];
+  const ADMIN_PASSWORD_DEFAULT = 'admin123';
+  const GAME_REF = 'game';
+  const SETTINGS_REF = 'settings';
+  const MISSIONS_REF = 'missions';
+
+  let myPlayerId = null;
+  let myName = null;
+  let myRole = null;
+  let gameState = null;
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, adminPassword: ADMIN_PASSWORD_DEFAULT };
+  let allMissions = [];
+  let mySelectedVote = null;
+  let killTarget = null;
+  let killTargetName = null;
+  let currentProofMission = null;
+  let proofPhotoData = null;
+  let killPhotoData = null;
+  let killStream = null;
+  let voteTimerInterval = null;
+  let meetingTimerInterval = null;
+  let roleRevealed = false;
+  let currentPhase = 'lobby';
+
+  window.showScreen = function(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+
+  window.showToast = function(msg, duration=2500) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), duration);
+  }
+
+  window.closeOverlay = function(id) {
+    document.getElementById(id).classList.remove('active');
+  }
+
+  function getPlayerId() {
+    let id = localStorage.getItem('amogus_player_id');
+    if (!id) { id = 'p_' + Math.random().toString(36).slice(2,10); localStorage.setItem('amogus_player_id', id); }
+    return id;
+  }
+
+  async function loadSettings() {
+    const snap = await get(ref(db, SETTINGS_REF));
+    if (snap.exists()) settings = { ...settings, ...snap.val() };
+  }
+
+  async function loadMissions() {
+    const snap = await get(ref(db, MISSIONS_REF));
+    if (snap.exists()) {
+      allMissions = Object.entries(snap.val()).map(([id, m]) => ({ id, ...m }));
+    } else {
+      await seedDefaultMissions();
+    }
+  }
+
+  async function seedDefaultMissions() {
+    const defaults = [
+      { location: 'Park', description: 'Find a red bench and photograph it', proofType: 'photo' },
+      { location: 'Park', description: 'Count how many trees you can see from the main path', proofType: 'code', code: '0000' },
+      { location: 'Café', description: 'Order something and photograph the receipt', proofType: 'photo' },
+      { location: 'Café', description: 'Find the opening hours sign and enter the closing time (HHMM)', proofType: 'code', code: '2200' },
+      { location: 'Square', description: 'Photograph the main monument or fountain', proofType: 'photo' },
+      { location: 'Square', description: 'Count the benches in the square', proofType: 'code', code: '0000' },
+      { location: 'Library', description: 'Find a book with a city in the title and photograph it', proofType: 'photo' },
+      { location: 'Metro', description: 'Photograph the departure board', proofType: 'photo' },
+      { location: 'Market', description: 'Photograph a fruit stall', proofType: 'photo' },
+      { location: 'Bridge', description: 'Photograph the view from the middle of the bridge', proofType: 'photo' },
+    ];
+    for (const m of defaults) await push(ref(db, MISSIONS_REF), m);
+    await loadMissions();
+  }
+
+  window.joinGame = async function() {
+    const name = document.getElementById('input-name').value.trim();
+    if (!name) { showToast('Enter your name'); return; }
+    myPlayerId = getPlayerId();
+    myName = name;
+    roleRevealed = false;
+    await loadSettings();
+    await loadMissions();
+    const snap = await get(ref(db, GAME_REF + '/state'));
+    const state = snap.exists() ? snap.val() : 'lobby';
+    if (state === 'playing') { showToast('A game is already in progress'); return; }
+    await set(ref(db, GAME_REF + '/players/' + myPlayerId), {
+      name, alive: true, tasksCompleted: 0, joinedAt: Date.now(),
+      color: PLAYER_COLORS[Math.floor(Math.random()*PLAYER_COLORS.length)]
+    });
+    await set(ref(db, GAME_REF + '/state'), 'lobby');
+    showScreen('screen-lobby');
+    listenLobby();
+  }
+
+  function listenLobby() {
+    onValue(ref(db, GAME_REF), (snap) => {
+      if (!snap.exists()) return;
+      gameState = snap.val();
+      const players = gameState.players || {};
+      const plist = Object.values(players);
+      const el = document.getElementById('lobby-players');
+      if (el) el.innerHTML = plist.map(p => `<div class="player-row"><div class="player-dot" style="background:${p.color}"></div><span>${p.name}</span></div>`).join('');
+      const statusEl = document.getElementById('lobby-status');
+      if (statusEl) statusEl.textContent = `${plist.length} player${plist.length!==1?'s':''} in lobby`;
+      const btnStart = document.getElementById('btn-start');
+      if (btnStart) btnStart.style.display = plist.length >= 2 ? 'block' : 'none';
+      if (gameState.state === 'playing' && !roleRevealed) {
+        roleRevealed = true;
+        myRole = gameState.players[myPlayerId]?.role;
+        showRoleReveal();
+      }
+    });
+  }
+
+  window.startGame = async function() {
+    await loadMissions();
+    const snap = await get(ref(db, GAME_REF + '/players'));
+    if (!snap.exists()) return;
+    const players = snap.val();
+    const ids = Object.keys(players);
+    if (ids.length < 2) { showToast('Need at least 2 players'); return; }
+    const impostorCount = Math.min(settings.impostorCount || 1, Math.floor(ids.length / 2));
+    const shuffledIds = [...ids].sort(() => Math.random() - 0.5);
+    const impostorIds = new Set(shuffledIds.slice(0, impostorCount));
+    const updates = {};
+    ids.forEach((id) => {
+      updates[GAME_REF + '/players/' + id + '/role'] = impostorIds.has(id) ? 'impostor' : 'crewmate';
+      updates[GAME_REF + '/players/' + id + '/missions'] = assignMissions();
+    });
+    updates[GAME_REF + '/impostorCount'] = impostorCount;
+    updates[GAME_REF + '/state'] = 'playing';
+    updates[GAME_REF + '/killCooldownUntil'] = 0;
+    updates[GAME_REF + '/sabotageUsed'] = false;
+    updates[GAME_REF + '/votingActive'] = false;
+    updates[GAME_REF + '/meetingActive'] = false;
+    updates[GAME_REF + '/votes'] = null;
+    updates[GAME_REF + '/voteEndTime'] = null;
+    updates[GAME_REF + '/meetingEndTime'] = null;
+    updates[GAME_REF + '/emergencyCalledBy'] = null;
+    updates[GAME_REF + '/evidence'] = null;
+    await update(ref(db), updates);
+  }
+
+  function assignMissions() {
+    const count = settings.tasksPerPlayer || 3;
+    const shuffled = [...allMissions].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, count).map(m => ({ ...m, done: false }));
+  }
+
+  function showRoleReveal() {
+    const role = myRole;
+    document.getElementById('role-icon').textContent = role === 'impostor' ? '🔴' : '🔵';
+    document.getElementById('role-name').textContent = role === 'impostor' ? 'Impostor' : 'Crewmate';
+    document.getElementById('role-desc').textContent = role === 'impostor'
+      ? 'Eliminate crewmates. Survive the vote. Win.'
+      : 'Complete your tasks. Find the impostor. Survive.';
+    document.getElementById('role-name').style.color = role === 'impostor' ? 'var(--imp)' : 'var(--crew)';
+    showScreen('screen-role');
+  }
+
+  window.goToMain = function() {
+    currentPhase = 'playing';
+    if (myRole === 'impostor') {
+      document.getElementById('imp-playername').textContent = myName;
+      showScreen('screen-impostor');
+    } else {
+      document.getElementById('main-playername').textContent = myName;
+      document.getElementById('main-role-pill').innerHTML = '<span class="pill pill-crew">Crewmate</span>';
+      showScreen('screen-main');
+    }
+    listenGame();
+  }
+
+  function listenGame() {
+    onValue(ref(db, GAME_REF), (snap) => {
+      if (!snap.exists()) return;
+      gameState = snap.val();
+      if (gameState.state === 'ended') { showResult(); return; }
+      handleGameState();
+    });
+  }
+
+  function handleGameState() {
+    const meeting = gameState.meetingActive;
+    const voting = gameState.votingActive;
+
+    if (meeting && currentPhase !== 'meeting') {
+      currentPhase = 'meeting';
+      startMeetingCountdown();
+      return;
+    }
+    if (voting && currentPhase !== 'voting') {
+      currentPhase = 'voting';
+      showVotingScreen();
+      return;
+    }
+    if (!meeting && !voting && currentPhase === 'meeting') {
+      currentPhase = 'playing';
+      goToMainScreen();
+      return;
+    }
+    if (!meeting && !voting && currentPhase === 'voting') {
+      currentPhase = 'playing';
+      goToMainScreen();
+      return;
+    }
+    if (currentPhase === 'playing') renderGame();
+    if (currentPhase === 'voting') renderVoting();
+  }
+
+  function goToMainScreen() {
+    if (myRole === 'impostor') showScreen('screen-impostor');
+    else showScreen('screen-main');
+    renderGame();
+  }
+
+  function startMeetingCountdown() {
+    showScreen('screen-meeting');
+    const callerName = gameState.players[gameState.emergencyCalledBy]?.name || 'Someone';
+    document.getElementById('meeting-caller').textContent = `Called by ${callerName}`;
+    if (meetingTimerInterval) clearInterval(meetingTimerInterval);
+    meetingTimerInterval = setInterval(() => {
+      if (!gameState) return;
+      const end = gameState.meetingEndTime;
+      if (!end) return;
+      const rem = Math.max(0, end - Date.now());
+      const mins = Math.floor(rem / 60000);
+      const secs = Math.floor((rem % 60000) / 1000);
+      const el = document.getElementById('meeting-countdown');
+      if (el) el.textContent = `${mins}:${secs.toString().padStart(2,'0')}`;
+      if (rem <= 0) {
+        clearInterval(meetingTimerInterval);
+        if (gameState.meetingActive) {
+          update(ref(db), {
+            [GAME_REF+'/meetingActive']: false,
+            [GAME_REF+'/votingActive']: true,
+            [GAME_REF+'/voteEndTime']: Date.now() + (settings.voteDuration||60)*1000
+          });
+        }
+      }
+    }, 500);
+  }
+
+  function showVotingScreen() {
+    if (myRole === 'impostor') {
+      showScreen('screen-impostor');
+      switchImpTab('vote');
+    } else {
+      showScreen('screen-main');
+      switchTab('vote');
+    }
+    renderVoting();
+  }
+
+  function renderVoting() {
+    const players = gameState.players || {};
+    const alive = Object.values(players).filter(p => p.alive);
+    if (myRole === 'crewmate') {
+      renderVoteGrid('vote-grid', alive, false);
+      startVoteTimer('vote-timer');
+    } else {
+      renderVoteGrid('imp-vote-grid', alive, true);
+      startVoteTimer('imp-vote-timer');
+    }
+  }
+
+  function renderGame() {
+    const players = gameState.players || {};
+    const me = players[myPlayerId];
+    if (!me) return;
+    const alive = Object.values(players).filter(p => p.alive);
+    const dead = Object.values(players).filter(p => !p.alive);
+    const allTasks = Object.values(players).flatMap(p => Object.values(p.missions || {}));
+    const doneTasks = allTasks.filter(t => t.done).length;
+    const progress = allTasks.length ? Math.round((doneTasks / allTasks.length) * 100) : 0;
+
+    const isPaused = !!gameState.paused;
+    if (myRole === 'crewmate') {
+      document.getElementById('dead-notice').style.display = !me.alive ? 'block' : 'none';
+      document.getElementById('paused-notice').style.display = isPaused ? 'block' : 'none';
+      document.getElementById('progress-fill').style.width = progress + '%';
+      renderTasks(me);
+      renderPlayerList('players-alive', alive);
+      renderPlayerList('players-dead', dead);
+      document.getElementById('btn-emergency').disabled = !!gameState.meetingActive || !!gameState.votingActive || isPaused;
+      document.getElementById('tab-vote-btn').style.display = 'none';
+    } else {
+      document.getElementById('imp-paused-notice').style.display = isPaused ? 'block' : 'none';
+      renderKillList(alive.filter(p => p.role !== 'impostor'));
+      renderPlayerList('imp-players-alive', alive);
+      renderPlayerList('imp-players-dead', dead);
+      renderCooldown();
+      const sabotageUsed = gameState.sabotageUsed;
+      document.getElementById('sabotage-used-notice').style.display = sabotageUsed ? 'block' : 'none';
+      document.getElementById('btn-sabotage').disabled = sabotageUsed || isPaused;
+      document.getElementById('imp-vote-tab-btn').style.display = 'none';
+      document.getElementById('imp-btn-emergency').disabled = !!gameState.meetingActive || !!gameState.votingActive || isPaused;
+    }
+
+    if (gameState.sabotageMessage && gameState.sabotageVisible) {
+      document.getElementById('sabotage-message').textContent = gameState.sabotageMessage;
+      document.getElementById('sabotage-banner').style.display = 'block';
+    }
+  }
+
+  function renderTasks(me) {
+    const missions = Object.values(me.missions || {});
+    const el = document.getElementById('tasks-list');
+    el.innerHTML = missions.map((m, i) => `
+      <div class="mission-card ${m.done ? 'done' : ''}">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+          <div style="flex:1;">
+            <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location}</div>
+            <div style="font-weight:500;">${m.description}</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo required' : '🔢 Secret code required'}</div>
+          </div>
+          ${m.done ? '<span style="color:var(--green); font-size:18px; flex-shrink:0;">✓</span>' : `<button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="openProof(${i})">Complete</button>`}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function renderPlayerList(elId, players) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    if (!players.length) { el.innerHTML = '<div style="color:var(--muted); font-size:13px; padding:8px 0;">None</div>'; return; }
+    el.innerHTML = players.map(p => `
+      <div class="player-row">
+        <div class="player-dot" style="background:${p.color}"></div>
+        <span style="flex:1;">${p.name}</span>
+        ${p.alive ? '' : '<span class="pill pill-dead">eliminated</span>'}
+      </div>
+    `).join('');
+  }
+
+  function renderKillList(aliveCrew) {
+    const el = document.getElementById('kill-list');
+    if (!el) return;
+    const now = Date.now();
+    const onCooldown = gameState.killCooldownUntil && now < gameState.killCooldownUntil;
+    if (!aliveCrew.length) { el.innerHTML = '<div style="color:var(--muted); font-size:14px;">No crewmates left alive.</div>'; return; }
+    el.innerHTML = aliveCrew.map(p => {
+      const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
+      return `<div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:0.5px solid var(--border);">
+        <div class="player-dot" style="background:${p.color}"></div>
+        <span style="flex:1;">${p.name}</span>
+        <button class="btn btn-danger" style="width:auto; padding:6px 14px; font-size:13px;" ${onCooldown ? 'disabled' : ''} onclick="openKill('${pid}','${p.name}')">Kill</button>
+      </div>`;
+    }).join('');
+  }
+
+  function renderCooldown() {
+    const now = Date.now();
+    const until = gameState.killCooldownUntil || 0;
+    const total = (settings.cooldown || 120) * 1000;
+    const remaining = Math.max(0, until - now);
+    const pct = remaining > 0 ? Math.round((remaining / total) * 100) : 0;
+    const fillEl = document.getElementById('cooldown-fill');
+    const statusEl = document.getElementById('cooldown-status');
+    if (fillEl) fillEl.style.width = pct + '%';
+    if (statusEl) statusEl.textContent = remaining > 0 ? `Cooldown: ${Math.ceil(remaining/1000)}s remaining` : 'Ready to kill';
+  }
+
+  function renderVoteGrid(elId, alivePlayers, isImpostor) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const votes = gameState.votes || {};
+    // Use local selection first (instant feedback), fall back to Firebase confirmed vote
+    const myVote = mySelectedVote || votes[myPlayerId];
+    el.innerHTML = alivePlayers.map(p => {
+      const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
+      const voteCount = Object.values(votes).filter(v => v === pid).length;
+      const fn = isImpostor ? 'selectVoteImp' : 'selectVote';
+      const isSelected = myVote === pid;
+      return `<div class="vote-card ${isSelected?'selected':''}" onclick="${fn}('${pid}')" style="${isSelected?'border-color:var(--crew); background:rgba(55,138,221,0.15);':''}">
+        <div class="player-dot" style="background:${p.color}; margin:0 auto 6px;"></div>
+        <div style="font-weight:500; font-size:14px;">${p.name}</div>
+        <div class="vote-count">${voteCount}</div>
+      </div>`;
+    }).join('') + (() => {
+      const skipSelected = myVote === 'skip';
+      return `<div class="vote-card skip ${skipSelected?'selected':''}" onclick="${isImpostor?'selectVoteImp':'selectVote'}('skip')" style="${skipSelected?'border-color:var(--crew); background:rgba(55,138,221,0.15);':''}">
+        <div style="font-size:20px; margin-bottom:4px;">⏭</div>
+        <div style="font-weight:500; font-size:14px;">Skip</div>
+        <div class="vote-count">${Object.values(votes).filter(v=>v==='skip').length}</div>
+      </div>`;
+    })();
+  }
+
+  function startVoteTimer(elId) {
+    if (voteTimerInterval) clearInterval(voteTimerInterval);
+    voteTimerInterval = setInterval(async () => {
+      if (!gameState) return;
+      const end = gameState.voteEndTime;
+      if (!end) return;
+      const rem = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      const el = document.getElementById(elId);
+      if (el) el.textContent = rem + 's';
+      if (rem === 0) {
+        clearInterval(voteTimerInterval);
+        await resolveVote();
+      }
+    }, 500);
+  }
+
+  window.selectVote = function(pid) {
+    mySelectedVote = pid;
+    document.getElementById('btn-confirm-vote').disabled = false;
+    renderVoteGrid('vote-grid', Object.values(gameState.players).filter(p=>p.alive), false);
+  }
+
+  window.selectVoteImp = function(pid) {
+    mySelectedVote = pid;
+    document.getElementById('imp-btn-confirm-vote').disabled = false;
+    renderVoteGrid('imp-vote-grid', Object.values(gameState.players).filter(p=>p.alive), true);
+  }
+
+  async function castVoteAndCheckEarly() {
+    if (!mySelectedVote) return;
+    await set(ref(db, GAME_REF + '/votes/' + myPlayerId), mySelectedVote);
+    showToast('Vote cast!');
+    // Check if everyone has voted — if so resolve early
+    const snap = await get(ref(db, GAME_REF));
+    if (!snap.exists()) return;
+    const g = snap.val();
+    const alivePlayers = Object.keys(g.players || {}).filter(id => g.players[id].alive);
+    const votes = g.votes || {};
+    const votedCount = Object.keys(votes).length;
+    if (votedCount >= alivePlayers.length) {
+      await resolveVote();
+    }
+  }
+
+  window.confirmVote = async function() {
+    document.getElementById('btn-confirm-vote').disabled = true;
+    await castVoteAndCheckEarly();
+  }
+
+  window.confirmVoteImp = async function() {
+    document.getElementById('imp-btn-confirm-vote').disabled = true;
+    await castVoteAndCheckEarly();
+  }
+
+  async function resolveVote() {
+    const snap = await get(ref(db, GAME_REF));
+    if (!snap.exists()) return;
+    const g = snap.val();
+    if (!g.votingActive) return;
+    const votes = g.votes || {};
+    const counts = {};
+    Object.values(votes).forEach(v => { counts[v] = (counts[v]||0)+1; });
+    let topId = null, topCount = 0, tie = false;
+    Object.entries(counts).forEach(([id, c]) => {
+      if (c > topCount) { topId = id; topCount = c; tie = false; }
+      else if (c === topCount) { tie = true; }
+    });
+    const updates = {
+      [GAME_REF+'/votingActive']: false,
+      [GAME_REF+'/meetingActive']: false,
+      [GAME_REF+'/votes']: null,
+      [GAME_REF+'/voteEndTime']: null,
+      [GAME_REF+'/emergencyCalledBy']: null
+    };
+    if (!tie && topId && topId !== 'skip' && g.players[topId]) {
+      updates[GAME_REF+'/players/'+topId+'/alive'] = false;
+      updates[GAME_REF+'/players/'+topId+'/ejected'] = true;
+      if (g.players[topId].role === 'impostor') {
+        updates[GAME_REF+'/state'] = 'ended';
+        updates[GAME_REF+'/winner'] = 'crewmates';
+        updates[GAME_REF+'/endReason'] = `${g.players[topId].name} was the impostor. Crewmates win!`;
+      }
+    }
+    await update(ref(db), updates);
+    currentPhase = 'playing';
+    checkWinConditions();
+  }
+
+  async function checkWinConditions() {
+    const snap = await get(ref(db, GAME_REF));
+    if (!snap.exists()) return;
+    const g = snap.val();
+    if (g.state === 'ended') return;
+    const players = g.players || {};
+    const aliveCrew = Object.values(players).filter(p => p.alive && p.role !== 'impostor');
+    const aliveImpostors = Object.values(players).filter(p => p.alive && p.role === 'impostor');
+    const allTasks = Object.values(players).flatMap(p => Object.values(p.missions || {}));
+    const allDone = allTasks.length > 0 && allTasks.every(t => t.done);
+    if (aliveImpostors.length === 0) {
+      await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'crewmates', [GAME_REF+'/endReason']: 'All impostors eliminated. Crewmates win!' });
+    } else if (aliveCrew.length <= aliveImpostors.length) {
+      await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'impostor', [GAME_REF+'/endReason']: 'Impostors outnumber the crew. Impostor wins!' });
+    } else if (allDone) {
+      await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'crewmates', [GAME_REF+'/endReason']: 'All tasks completed. Crewmates win!' });
+    }
+  }
+
+  function showResult() {
+    if (voteTimerInterval) clearInterval(voteTimerInterval);
+    if (meetingTimerInterval) clearInterval(meetingTimerInterval);
+    const winner = gameState.winner;
+    const isMyWin = (winner === 'crewmates' && myRole === 'crewmate') || (winner === 'impostor' && myRole === 'impostor');
+    document.getElementById('result-icon').textContent = winner === 'crewmates' ? '🔵' : '🔴';
+    document.getElementById('result-title').textContent = winner === 'crewmates' ? 'Crewmates win!' : 'Impostor wins!';
+    document.getElementById('result-sub').textContent = (gameState.endReason || '') + (isMyWin ? ' — You won!' : ' — You lost.');
+    renderEvidenceBoard();
+    showScreen('screen-result');
+  }
+
+  async function renderEvidenceBoard() {
+    const snap = await get(ref(db, GAME_REF+'/evidence'));
+    const el = document.getElementById('evidence-list');
+    if (!snap.exists()) { el.innerHTML = '<div style="color:var(--muted); font-size:13px; grid-column:1/-1;">No kills recorded.</div>'; return; }
+    const entries = Object.values(snap.val());
+    el.innerHTML = entries.map(e => `
+      <div style="background:var(--bg2); border:0.5px solid var(--border); border-radius:var(--radius); overflow:hidden;">
+        <img src="${e.photo}" style="width:100%; display:block; aspect-ratio:4/3; object-fit:cover;" />
+        <div style="padding:8px 10px;">
+          <div style="font-weight:600; font-size:13px; color:var(--imp);">💀 ${e.victimName}</div>
+          <div style="font-size:11px; color:var(--muted); margin-top:2px;">${new Date(e.killedAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  window.callEmergency = async function() {
+    if (gameState.meetingActive || gameState.votingActive) return;
+    const meetingEnd = Date.now() + (settings.meetingDuration||300)*1000;
+    await update(ref(db), {
+      [GAME_REF+'/emergencyCalledBy']: myPlayerId,
+      [GAME_REF+'/meetingActive']: true,
+      [GAME_REF+'/meetingEndTime']: meetingEnd,
+      [GAME_REF+'/votingActive']: false,
+      [GAME_REF+'/votes']: null
+    });
+  }
+
+  // KILL with camera
+  window.openKill = function(pid, name) {
+    killTarget = pid;
+    killTargetName = name;
+    killPhotoData = null;
+    document.getElementById('kill-target-name').textContent = 'Kill ' + name + '?';
+    document.getElementById('kill-photo-preview').innerHTML = '';
+    document.getElementById('kill-video').style.display = 'none';
+    document.getElementById('btn-open-camera').style.display = 'block';
+    document.getElementById('btn-open-camera').disabled = !faceApiReady && !faceApiLoadFailed;
+    const notice = document.getElementById('face-api-loading');
+    if (notice) {
+      if (faceApiReady || faceApiLoadFailed) {
+        notice.style.display = 'none';
+      } else {
+        notice.style.display = 'block';
+        notice.textContent = '⏳ Loading face detector, please wait...';
+      }
+    }
+    document.getElementById('btn-take-photo').style.display = 'none';
+    document.getElementById('btn-confirm-kill').disabled = true;
+    document.getElementById('overlay-kill').classList.add('active');
+  }
+
+  window.openKillCamera = async function() {
+    try {
+      killStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      const video = document.getElementById('kill-video');
+      video.srcObject = killStream;
+      video.style.display = 'block';
+      document.getElementById('btn-open-camera').style.display = 'none';
+      document.getElementById('btn-take-photo').style.display = 'block';
+    } catch(e) {
+      // fallback: file input
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.capture = 'environment';
+      input.onchange = (ev) => {
+        const file = ev.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (r) => {
+          killPhotoData = r.target.result;
+          document.getElementById('kill-photo-preview').innerHTML = `<img src="${killPhotoData}" style="width:100%; border-radius:8px;" />`;
+          document.getElementById('btn-confirm-kill').disabled = false;
+        };
+        reader.readAsDataURL(file);
+      };
+      input.click();
+    }
+  }
+
+  window.takeKillPhoto = function() {
+    const video = document.getElementById('kill-video');
+    const canvas = document.getElementById('kill-canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    killPhotoData = canvas.toDataURL('image/jpeg', 0.7);
+    document.getElementById('kill-photo-preview').innerHTML = `<img src="${killPhotoData}" style="width:100%; border-radius:8px;" />`;
+    document.getElementById('kill-video').style.display = 'none';
+    document.getElementById('btn-take-photo').style.display = 'none';
+    document.getElementById('btn-confirm-kill').disabled = false;
+    if (killStream) { killStream.getTracks().forEach(t => t.stop()); killStream = null; }
+  }
+
+  window.closeKillOverlay = function() {
+    if (killStream) { killStream.getTracks().forEach(t => t.stop()); killStream = null; }
+    document.getElementById('kill-video').style.display = 'none';
+    closeOverlay('overlay-kill');
+  }
+
+  window.confirmKill = async function() {
+    if (!killTarget || !killPhotoData) return;
+    if (gameState.paused) { showToast('Game is paused'); return; }
+    const btnConfirm = document.getElementById('btn-confirm-kill');
+    btnConfirm.disabled = true;
+    btnConfirm.textContent = 'Verifying photo...';
+    if (faceApiReady) {
+      try {
+        const img = new Image();
+        img.src = killPhotoData;
+        await new Promise(res => { img.onload = res; });
+        const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.35 }));
+        if (!detections || detections.length === 0) {
+          btnConfirm.disabled = false;
+          btnConfirm.textContent = 'Confirm kill';
+          showToast('No face detected — retake the photo', 3500);
+          return;
+        }
+      } catch(e) {
+        // face-api runtime error — allow kill
+      }
+    } else if (!faceApiLoadFailed) {
+      // Models still loading — block kill
+      btnConfirm.disabled = false;
+      btnConfirm.textContent = 'Confirm kill';
+      showToast('Face detector still loading, try again', 3000);
+      return;
+    }
+    // faceApiLoadFailed = model never loaded, skip detection silently
+    closeOverlay('overlay-kill');
+    const victimName = killTargetName || gameState.players[killTarget]?.name || 'Unknown';
+    await update(ref(db), {
+      [GAME_REF+'/players/'+killTarget+'/alive']: false,
+      [GAME_REF+'/killCooldownUntil']: Date.now() + (settings.cooldown||120)*1000
+    });
+    await push(ref(db, GAME_REF+'/evidence'), {
+      victimId: killTarget, victimName, photo: killPhotoData, killedAt: Date.now()
+    });
+    killTarget = null; killPhotoData = null;
+    showToast('Kill confirmed');
+    checkWinConditions();
+  }
+
+  window.openProof = function(missionIdx) {
+    const me = gameState.players[myPlayerId];
+    const missions = Object.values(me.missions || {});
+    currentProofMission = { mission: missions[missionIdx], idx: missionIdx };
+    document.getElementById('proof-mission-title').textContent = missions[missionIdx].location;
+    document.getElementById('proof-mission-desc').textContent = missions[missionIdx].description;
+    const isPhoto = missions[missionIdx].proofType === 'photo';
+    document.getElementById('proof-photo-section').style.display = isPhoto ? 'block' : 'none';
+    document.getElementById('proof-code-section').style.display = isPhoto ? 'none' : 'block';
+    document.getElementById('proof-photo-preview').innerHTML = '';
+    document.getElementById('proof-code-input').value = '';
+    proofPhotoData = null;
+    document.getElementById('btn-submit-proof').disabled = true;
+    document.getElementById('overlay-proof').classList.add('active');
+  }
+
+  window.handlePhotoProof = function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      proofPhotoData = ev.target.result;
+      document.getElementById('proof-photo-preview').innerHTML = `<img src="${proofPhotoData}" style="width:100%; border-radius:8px; margin-top:8px;" />`;
+      document.getElementById('btn-submit-proof').disabled = false;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  document.getElementById('proof-code-input').addEventListener('input', function() {
+    document.getElementById('btn-submit-proof').disabled = this.value.length < 1;
+  });
+
+  window.submitProof = async function() {
+    if (!currentProofMission) return;
+    const { mission, idx } = currentProofMission;
+    if (mission.proofType === 'code') {
+      const entered = document.getElementById('proof-code-input').value.trim();
+      if (entered !== mission.code) { showToast('Wrong code — try again'); return; }
+    }
+    const me = gameState.players[myPlayerId];
+    const missionKeys = Object.keys(me.missions || {});
+    const missionKey = missionKeys[idx];
+    await update(ref(db), { [GAME_REF+'/players/'+myPlayerId+'/missions/'+missionKey+'/done']: true });
+    closeOverlay('overlay-proof');
+    showToast('Task completed!');
+    checkWinConditions();
+  }
+
+  window.sendSabotage = async function() {
+    const msg = document.getElementById('sabotage-text').value.trim();
+    if (!msg) { showToast('Write a message first'); return; }
+    await update(ref(db), {
+      [GAME_REF+'/sabotageUsed']: true,
+      [GAME_REF+'/sabotageMessage']: msg,
+      [GAME_REF+'/sabotageVisible']: true
+    });
+    showToast('Announcement sent');
+    setTimeout(() => update(ref(db), { [GAME_REF+'/sabotageVisible']: false }), 8000);
+  }
+
+  window.switchTab = function(tab) {
+    ['tasks','players','vote'].forEach(t => {
+      const el = document.getElementById('tab-'+t);
+      if (el) el.style.display = t===tab ? 'block' : 'none';
+      const btn = document.querySelector(`[onclick="switchTab('${t}')"]`);
+      if (btn) btn.classList.toggle('active', t===tab);
+    });
+    if (tab==='vote') {
+      document.getElementById('tab-vote-btn').style.display = '';
+      renderVoting();
+    }
+  }
+
+  window.switchImpTab = function(tab) {
+    ['kill','sabotage','players','vote'].forEach(t => {
+      const el = document.getElementById('imp-tab-'+t);
+      if (el) el.style.display = t===tab ? 'block' : 'none';
+      const btn = document.querySelector(`[onclick="switchImpTab('${t}')"]`);
+      if (btn) btn.classList.toggle('active', t===tab);
+    });
+    if (tab==='vote') {
+      document.getElementById('imp-vote-tab-btn').style.display = '';
+      renderVoting();
+    }
+  }
+
+  window.leaveGame = async function() {
+    if (myPlayerId) await remove(ref(db, GAME_REF+'/players/'+myPlayerId));
+    myPlayerId = null; myName = null; myRole = null; roleRevealed = false;
+    showScreen('screen-join');
+  }
+
+  window.newGame = async function() {
+    roleRevealed = false; currentPhase = 'lobby';
+    await update(ref(db), {
+      [GAME_REF+'/state']: 'lobby', [GAME_REF+'/winner']: null, [GAME_REF+'/endReason']: null,
+      [GAME_REF+'/votes']: null, [GAME_REF+'/votingActive']: false, [GAME_REF+'/meetingActive']: false,
+      [GAME_REF+'/sabotageUsed']: false, [GAME_REF+'/emergencyCalledBy']: null, [GAME_REF+'/evidence']: null
+    });
+    const snap = await get(ref(db, GAME_REF+'/players'));
+    if (snap.exists()) {
+      const updates = {};
+      Object.keys(snap.val()).forEach(id => {
+        updates[GAME_REF+'/players/'+id+'/alive'] = true;
+        updates[GAME_REF+'/players/'+id+'/role'] = null;
+        updates[GAME_REF+'/players/'+id+'/missions'] = null;
+      });
+      await update(ref(db), updates);
+    }
+    showScreen('screen-lobby');
+    listenLobby();
+  }
+
+  window.goAdmin = function() { showScreen('screen-admin'); }
+
+  window.adminLogin = async function() {
+    const pwd = document.getElementById('admin-password').value;
+    await loadSettings();
+    if (pwd !== (settings.adminPassword || ADMIN_PASSWORD_DEFAULT)) { showToast('Wrong password'); return; }
+    document.getElementById('admin-auth').style.display = 'none';
+    document.getElementById('admin-panel').style.display = 'block';
+    loadAdminMissions();
+    loadAdminGameState();
+  }
+
+  window.switchAdminTab = function(tab) {
+    ['missions','settings','game'].forEach(t => {
+      const el = document.getElementById('admin-tab-'+t);
+      if (el) el.style.display = t===tab ? 'block' : 'none';
+      const btn = document.querySelector(`[onclick="switchAdminTab('${t}')"]`);
+      if (btn) btn.classList.toggle('active', t===tab);
+    });
+    if (tab==='settings') loadAdminSettings();
+    if (tab==='game') loadAdminGameState();
+  }
+
+  async function loadAdminMissions() {
+    await loadMissions();
+    const el = document.getElementById('admin-missions-list');
+    if (!allMissions.length) { el.innerHTML = '<div style="color:var(--muted); font-size:13px;">No missions yet.</div>'; return; }
+    el.innerHTML = allMissions.map(m => `
+      <div class="card" style="margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+          <div>
+            <div style="font-size:12px; color:var(--muted);">${m.location} · ${m.proofType}</div>
+            <div style="font-size:14px; margin-top:2px;">${m.description}</div>
+            ${m.proofType==='code' ? `<div style="font-size:12px; color:var(--amber); margin-top:2px;">Code: ${m.code}</div>` : ''}
+          </div>
+          <button onclick="deleteMission('${m.id}')" style="background:none; border:none; color:var(--imp); cursor:pointer; font-size:18px; padding:0 0 0 8px;">×</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function loadAdminSettings() {
+    await loadSettings();
+    document.getElementById('setting-cooldown').value = settings.cooldown || 120;
+    document.getElementById('setting-tasks').value = settings.tasksPerPlayer || 3;
+    document.getElementById('setting-vote-duration').value = settings.voteDuration || 60;
+    document.getElementById('setting-meeting-duration').value = settings.meetingDuration || 300;
+    document.getElementById('setting-impostors').value = settings.impostorCount || 1;
+  }
+
+  async function loadAdminGameState() {
+    const snap = await get(ref(db, GAME_REF));
+    const el = document.getElementById('admin-game-state');
+    if (!snap.exists()) { el.innerHTML = '<div style="color:var(--muted); font-size:13px;">No game data.</div>'; return; }
+    const g = snap.val();
+    const players = g.players || {};
+    const isPaused = g.paused || false;
+    const pauseBtn = document.getElementById('btn-pause-game');
+    if (pauseBtn) {
+      pauseBtn.textContent = isPaused ? 'Resume game' : 'Pause game';
+      pauseBtn.className = isPaused ? 'btn btn-success' : 'btn btn-amber';
+    }
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:14px;"><span>State</span><span>${g.paused?'⏸ paused':g.state||'lobby'}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:14px;"><span>Players</span><span>${Object.keys(players).length}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0;font-size:14px;"><span>Voting</span><span>${g.votingActive?'Yes':'No'}</span></div>
+    `;
+  }
+
+  window.saveSettings = async function() {
+    const s = {
+      cooldown: parseInt(document.getElementById('setting-cooldown').value)||120,
+      tasksPerPlayer: parseInt(document.getElementById('setting-tasks').value)||3,
+      voteDuration: parseInt(document.getElementById('setting-vote-duration').value)||60,
+      meetingDuration: parseInt(document.getElementById('setting-meeting-duration').value)||300,
+      impostorCount: parseInt(document.getElementById('setting-impostors').value)||1,
+    };
+    const newPwd = document.getElementById('setting-password').value;
+    if (newPwd) s.adminPassword = newPwd;
+    await set(ref(db, SETTINGS_REF), { ...settings, ...s });
+    settings = { ...settings, ...s };
+    showToast('Settings saved');
+  }
+
+  window.showAddMission = function() {
+    document.getElementById('mission-location').value = '';
+    document.getElementById('mission-desc').value = '';
+    document.getElementById('mission-proof').value = 'photo';
+    document.getElementById('mission-code').value = '';
+    document.getElementById('mission-code-wrapper').style.display = 'none';
+    document.getElementById('overlay-add-mission').classList.add('active');
+  }
+
+  document.getElementById('mission-proof').addEventListener('change', function() {
+    document.getElementById('mission-code-wrapper').style.display = this.value==='code' ? 'block' : 'none';
+  });
+
+  window.saveMission = async function() {
+    const location = document.getElementById('mission-location').value.trim();
+    const description = document.getElementById('mission-desc').value.trim();
+    const proofType = document.getElementById('mission-proof').value;
+    const code = document.getElementById('mission-code').value.trim();
+    if (!location || !description) { showToast('Fill all fields'); return; }
+    if (proofType==='code' && !code) { showToast('Enter secret code'); return; }
+    const mission = { location, description, proofType };
+    if (proofType==='code') mission.code = code;
+    await push(ref(db, MISSIONS_REF), mission);
+    closeOverlay('overlay-add-mission');
+    showToast('Mission added');
+    loadAdminMissions();
+  }
+
+  window.deleteMission = async function(id) {
+    await remove(ref(db, MISSIONS_REF+'/'+id));
+    showToast('Mission deleted');
+    loadAdminMissions();
+  }
+
+  window.togglePauseGame = async function() {
+    const snap = await get(ref(db, GAME_REF + '/paused'));
+    const isPaused = snap.exists() ? snap.val() : false;
+    await set(ref(db, GAME_REF + '/paused'), !isPaused);
+    showToast(!isPaused ? 'Game paused' : 'Game resumed');
+    loadAdminGameState();
+  }
+
+  window.resetGame = async function() {
+    await remove(ref(db, GAME_REF));
+    showToast('Game reset');
+    loadAdminGameState();
+  }
+
+  // QR scan handler
+  const urlParams = new URLSearchParams(window.location.search);
+  const scanLocation = urlParams.get('location');
+  if (scanLocation) {
+    document.getElementById('screen-join').classList.remove('active');
+    document.getElementById('screen-scan').classList.add('active');
+    document.getElementById('scan-location-name').textContent = decodeURIComponent(scanLocation);
+    const pid = localStorage.getItem('amogus_player_id');
+    if (!pid) {
+      document.getElementById('scan-content').innerHTML = '<div style="color:var(--muted); font-size:14px;">Join the game first, then scan this QR code.</div>';
+    } else {
+      document.getElementById('scan-content').innerHTML = '<div style="font-size:14px; color:var(--muted);">Loading your mission...</div>';
+      setTimeout(async () => {
+        await loadMissions();
+        const snap = await get(ref(db, GAME_REF+'/players/'+pid));
+        if (!snap.exists()) { document.getElementById('scan-content').innerHTML = '<div style="color:var(--imp);">You are not in an active game.</div>'; return; }
+        const player = snap.val();
+        const missions = Object.values(player.missions||{});
+        const loc = decodeURIComponent(scanLocation);
+        const pending = missions.filter(m => m.location.toLowerCase()===loc.toLowerCase() && !m.done);
+        if (!pending.length) {
+          document.getElementById('scan-content').innerHTML = '<div style="color:var(--green); font-size:15px;">✓ All tasks at this location complete!</div>';
+        } else {
+          const m = pending[0];
+          document.getElementById('scan-content').innerHTML = `
+            <div class="mission-card">
+              <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location}</div>
+              <div style="font-weight:600; font-size:16px; margin-bottom:8px;">${m.description}</div>
+              <div style="font-size:13px; color:var(--muted);">${m.proofType==='photo'?'📷 Photo required':'🔢 Secret code required'}</div>
+            </div>
+            <a href="/" class="btn btn-primary" style="text-decoration:none; margin-top:8px;">Open app to complete</a>
+          `;
+        }
+      }, 500);
+    }
+  }
+</script>
+</body>
+</html>
