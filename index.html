@@ -430,13 +430,12 @@
   <div class="overlay-box" style="text-align:center;">
     <div style="font-size:36px; margin-bottom:8px;">📸</div>
     <h3 id="kill-target-name" style="margin-bottom:4px;"></h3>
-    <div style="font-size:13px; color:var(--muted); margin-bottom:16px;">Take a secret photo to confirm the kill.</div>
-    <video id="kill-video" autoplay playsinline style="display:none; margin-bottom:12px;"></video>
-    <canvas id="kill-canvas"></canvas>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:16px;">Take a secret photo of their face to confirm the kill.</div>
+    <canvas id="kill-canvas" style="display:none;"></canvas>
     <div id="kill-photo-preview" style="margin-bottom:12px;"></div>
     <div id="face-api-loading" style="font-size:13px; color:var(--amber); margin-bottom:8px;">⏳ Loading face detector, please wait...</div>
-    <button class="btn btn-ghost" id="btn-open-camera" onclick="openKillCamera()" style="margin-bottom:8px;" disabled>📷 Open camera</button>
-    <button class="btn btn-danger" id="btn-take-photo" onclick="takeKillPhoto()" style="display:none; margin-bottom:8px;">Take photo</button>
+    <input type="file" accept="image/*" capture="environment" id="kill-photo-input" style="display:none" onchange="handleKillPhotoInput(event)" />
+    <button class="btn btn-ghost" id="btn-open-camera" onclick="document.getElementById('kill-photo-input').click()" style="margin-bottom:8px;" disabled>📷 Open camera</button>
     <button class="btn btn-success" id="btn-confirm-kill" onclick="confirmKill()" disabled style="margin-bottom:8px;">Confirm kill</button>
     <button class="btn btn-ghost" onclick="closeKillOverlay()">Cancel</button>
   </div>
@@ -629,6 +628,7 @@
   let killStream = null;
   let voteTimerInterval = null;
   let meetingTimerInterval = null;
+  let cooldownInterval = null;
   let roleRevealed = false;
   let currentPhase = 'lobby';
 
@@ -735,6 +735,7 @@
       if (myRole === 'impostor') {
         document.getElementById('imp-playername').textContent = myName;
         showScreen('screen-impostor');
+        startCooldownTick();
       } else {
         document.getElementById('main-playername').textContent = myName;
         document.getElementById('main-role-pill').innerHTML = '<span class="pill pill-crew">Crewmate</span>';
@@ -886,6 +887,7 @@
     if (myRole === 'impostor') {
       document.getElementById('imp-playername').textContent = myName;
       showScreen('screen-impostor');
+      startCooldownTick();
     } else {
       document.getElementById('main-playername').textContent = myName;
       document.getElementById('main-role-pill').innerHTML = '<span class="pill pill-crew">Crewmate</span>';
@@ -933,9 +935,17 @@
       goToMainScreen();
       return;
     }
+    // After voting ends — show recap for ALL clients via lastRecap signal
     if (!meeting && !voting && currentPhase === 'voting') {
-      currentPhase = 'playing';
-      goToMainScreen();
+      const recap = gameState.lastRecap;
+      if (recap && recap.timestamp !== window._lastShownRecap) {
+        window._lastShownRecap = recap.timestamp;
+        currentPhase = 'recap';
+        showRecapThenReturn(recap, gameState);
+      } else {
+        currentPhase = 'playing';
+        goToMainScreen();
+      }
       return;
     }
     if (!meeting && !voting && currentPhase === 'review') {
@@ -1151,6 +1161,13 @@
     }).join('');
   }
 
+  function startCooldownTick() {
+    if (cooldownInterval) clearInterval(cooldownInterval);
+    cooldownInterval = setInterval(() => {
+      if (gameState && myRole === 'impostor') renderCooldown();
+    }, 250);
+  }
+
   function renderCooldown() {
     const now = Date.now();
     const until = gameState.killCooldownUntil || 0;
@@ -1167,14 +1184,15 @@
     const el = document.getElementById(elId);
     if (!el) return;
     const votes = gameState.votes || {};
-    // Use local selection first (instant feedback), fall back to Firebase confirmed vote
     const myVote = mySelectedVote || votes[myPlayerId];
+    const me = gameState?.players?.[myPlayerId];
+    const canVote = me?.alive || me?.pendingKill;
     el.innerHTML = alivePlayers.map(p => {
       const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
       const voteCount = Object.values(votes).filter(v => v === pid).length;
       const fn = isImpostor ? 'selectVoteImp' : 'selectVote';
       const isSelected = myVote === pid;
-      return `<div class="vote-card ${isSelected?'selected':''}" onclick="${fn}('${pid}')" style="${isSelected?'border-color:var(--crew); background:rgba(55,138,221,0.15);':''}">
+      return `<div class="vote-card ${isSelected?'selected':''}" ${canVote ? `onclick="${fn}('${pid}')"` : 'style="cursor:default;opacity:0.6;"'} style="${isSelected?'border-color:var(--crew); background:rgba(55,138,221,0.15);':''}">
         <div class="player-dot" style="background:${p.color}; margin:0 auto 6px;"></div>
         <div style="font-weight:500; font-size:14px;">${p.name}</div>
         <div class="vote-count">${voteCount}</div>
@@ -1219,13 +1237,18 @@
 
   async function castVoteAndCheckEarly() {
     if (!mySelectedVote) return;
+    const me = gameState?.players?.[myPlayerId];
+    if (!me?.alive && !me?.pendingKill) {
+      showToast('You are eliminated — you cannot vote');
+      return;
+    }
     await set(ref(db, GAME_REF + '/votes/' + myPlayerId), mySelectedVote);
     showToast('Vote cast!');
     // Check if everyone has voted — if so resolve early
     const snap = await get(ref(db, GAME_REF));
     if (!snap.exists()) return;
     const g = snap.val();
-    const alivePlayers = Object.keys(g.players || {}).filter(id => g.players[id].alive);
+    const alivePlayers = Object.keys(g.players || {}).filter(id => g.players[id].alive || g.players[id].pendingKill);
     const votes = g.votes || {};
     const votedCount = Object.keys(votes).length;
     if (votedCount >= alivePlayers.length) {
@@ -1234,11 +1257,15 @@
   }
 
   window.confirmVote = async function() {
+    const me = gameState?.players?.[myPlayerId];
+    if (!me?.alive && !me?.pendingKill) { showToast('You cannot vote'); return; }
     document.getElementById('btn-confirm-vote').disabled = true;
     await castVoteAndCheckEarly();
   }
 
   window.confirmVoteImp = async function() {
+    const me = gameState?.players?.[myPlayerId];
+    if (!me?.alive && !me?.pendingKill) { showToast('You cannot vote'); return; }
     document.getElementById('imp-btn-confirm-vote').disabled = true;
     await castVoteAndCheckEarly();
   }
@@ -1291,9 +1318,8 @@
       }
     }
     updates[GAME_REF+'/lastRecap'] = recapEntry;
-    currentPhase = 'recap'; // Set BEFORE Firebase update so listener doesn't override
     await update(ref(db), updates);
-    showRecapThenReturn(recapEntry, g);
+    // All clients will show recap via handleGameState when they receive lastRecap
     checkWinConditions();
   }
 
@@ -1321,6 +1347,7 @@
   function showResult() {
     if (voteTimerInterval) clearInterval(voteTimerInterval);
     if (meetingTimerInterval) clearInterval(meetingTimerInterval);
+    if (cooldownInterval) clearInterval(cooldownInterval);
     const winner = gameState.winner;
     const isMyWin = (winner === 'crewmates' && myRole === 'crewmate') || (winner === 'impostor' && myRole === 'impostor');
     document.getElementById('result-icon').textContent = winner === 'crewmates' ? '🔵' : '🔴';
@@ -1779,69 +1806,30 @@
     killPhotoData = null;
     document.getElementById('kill-target-name').textContent = 'Kill ' + name + '?';
     document.getElementById('kill-photo-preview').innerHTML = '';
-    document.getElementById('kill-video').style.display = 'none';
-    document.getElementById('btn-open-camera').style.display = 'block';
+    document.getElementById('kill-photo-input').value = '';
     document.getElementById('btn-open-camera').disabled = !faceApiReady && !faceApiLoadFailed;
     const notice = document.getElementById('face-api-loading');
     if (notice) {
-      if (faceApiReady || faceApiLoadFailed) {
-        notice.style.display = 'none';
-      } else {
-        notice.style.display = 'block';
-        notice.textContent = '⏳ Loading face detector, please wait...';
-      }
+      notice.style.display = (faceApiReady || faceApiLoadFailed) ? 'none' : 'block';
+      notice.textContent = '⏳ Loading face detector, please wait...';
     }
-    document.getElementById('btn-take-photo').style.display = 'none';
     document.getElementById('btn-confirm-kill').disabled = true;
     document.getElementById('overlay-kill').classList.add('active');
   }
 
-  window.openKillCamera = async function() {
-    try {
-      killStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-      const video = document.getElementById('kill-video');
-      video.srcObject = killStream;
-      video.style.display = 'block';
-      document.getElementById('btn-open-camera').style.display = 'none';
-      document.getElementById('btn-take-photo').style.display = 'block';
-    } catch(e) {
-      // fallback: file input
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.capture = 'environment';
-      input.onchange = (ev) => {
-        const file = ev.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (r) => {
-          killPhotoData = r.target.result;
-          document.getElementById('kill-photo-preview').innerHTML = `<img src="${killPhotoData}" style="width:100%; border-radius:8px;" />`;
-          document.getElementById('btn-confirm-kill').disabled = false;
-        };
-        reader.readAsDataURL(file);
-      };
-      input.click();
-    }
-  }
-
-  window.takeKillPhoto = function() {
-    const video = document.getElementById('kill-video');
-    const canvas = document.getElementById('kill-canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d').drawImage(video, 0, 0);
-    killPhotoData = canvas.toDataURL('image/jpeg', 0.7);
-    document.getElementById('kill-photo-preview').innerHTML = `<img src="${killPhotoData}" style="width:100%; border-radius:8px;" />`;
-    document.getElementById('kill-video').style.display = 'none';
-    document.getElementById('btn-take-photo').style.display = 'none';
-    document.getElementById('btn-confirm-kill').disabled = false;
-    if (killStream) { killStream.getTracks().forEach(t => t.stop()); killStream = null; }
+  window.handleKillPhotoInput = function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (r) => {
+      killPhotoData = r.target.result;
+      document.getElementById('kill-photo-preview').innerHTML = `<img src="${killPhotoData}" style="width:100%; border-radius:8px; margin-bottom:8px;" />`;
+      document.getElementById('btn-confirm-kill').disabled = false;
+    };
+    reader.readAsDataURL(file);
   }
 
   window.closeKillOverlay = function() {
-    if (killStream) { killStream.getTracks().forEach(t => t.stop()); killStream = null; }
-    document.getElementById('kill-video').style.display = 'none';
     closeOverlay('overlay-kill');
   }
 
@@ -2329,12 +2317,35 @@
 
   window.adminResetGame = async function() {
     closeOverlay('overlay-admin-float');
-    await remove(ref(db, GAME_REF));
-    roleRevealed = false;
-    currentPhase = 'lobby';
+    // Reset game data but keep players, use forceLobby to push everyone to lobby
+    const snap = await get(ref(db, GAME_REF+'/players'));
+    const updates = {
+      [GAME_REF+'/state']: 'lobby',
+      [GAME_REF+'/winner']: null,
+      [GAME_REF+'/endReason']: null,
+      [GAME_REF+'/votes']: null,
+      [GAME_REF+'/votingActive']: false,
+      [GAME_REF+'/meetingActive']: false,
+      [GAME_REF+'/sabotageUsed']: false,
+      [GAME_REF+'/emergencyCalledBy']: null,
+      [GAME_REF+'/evidence']: null,
+      [GAME_REF+'/pendingKills']: null,
+      [GAME_REF+'/pendingEvidence']: null,
+      [GAME_REF+'/lastRecap']: null,
+      [GAME_REF+'/forceLobby']: Date.now()
+    };
+    if (snap.exists()) {
+      Object.keys(snap.val()).forEach(id => {
+        updates[GAME_REF+'/players/'+id+'/alive'] = true;
+        updates[GAME_REF+'/players/'+id+'/role'] = null;
+        updates[GAME_REF+'/players/'+id+'/missions'] = null;
+        updates[GAME_REF+'/players/'+id+'/pendingKill'] = false;
+        updates[GAME_REF+'/players/'+id+'/temporarilyDead'] = false;
+        updates[GAME_REF+'/players/'+id+'/lives'] = null;
+      });
+    }
+    await update(ref(db), updates);
     showToast('Game reset');
-    showScreen('screen-lobby');
-    listenLobby();
   }
 
   // QR scan handler
