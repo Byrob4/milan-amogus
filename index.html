@@ -172,10 +172,13 @@
 
 <!-- MEETING RECAP -->
 <div class="screen" id="screen-recap">
-  <div style="font-size:13px; font-weight:600; color:var(--muted); letter-spacing:0.08em; margin-bottom:16px;">MEETING RECAP</div>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <div style="font-size:13px; font-weight:600; color:var(--muted); letter-spacing:0.08em;">MEETING RECAP</div>
+    <div style="font-size:13px; color:var(--muted);">Returning in <span id="recap-countdown" style="font-weight:600; color:var(--text);">6s</span></div>
+  </div>
   <div id="recap-content"></div>
   <div class="gap"></div>
-  <button class="btn btn-primary" style="margin-top:16px;" onclick="dismissRecap()">Continue</button>
+  <button class="btn btn-ghost" style="margin-top:16px;" onclick="dismissRecap()">Continue now</button>
 </div>
 
 <!-- MAIN GAME (crewmate) -->
@@ -783,7 +786,11 @@
       const players = gameState.players || {};
       const plist = Object.values(players);
       const el = document.getElementById('lobby-players');
-      if (el) el.innerHTML = plist.map(p => `<div class="player-row"><div class="player-dot" style="background:${p.color}"></div><span>${p.name}</span></div>`).join('');
+      if (el) el.innerHTML = plist.map((p, i) => {
+        const pid = Object.keys(players)[i];
+        const removeBtn = (isAdmin && pid !== myPlayerId) ? `<button onclick="adminRemoveFromLobby('${pid}')" style="background:none;border:none;color:var(--imp);font-size:16px;cursor:pointer;padding:0 4px;">×</button>` : '';
+        return `<div class="player-row"><div class="player-dot" style="background:${p.color}"></div><span style="flex:1;">${p.name}</span>${removeBtn}</div>`;
+      }).join('');
       const statusEl = document.getElementById('lobby-status');
       if (statusEl) statusEl.textContent = `${plist.length} player${plist.length!==1?'s':''} in lobby`;
       const btnStart = document.getElementById('btn-start');
@@ -1210,7 +1217,7 @@
     updates[GAME_REF+'/lastRecap'] = recapEntry;
     await update(ref(db), updates);
     currentPhase = 'recap';
-    showRecap(recapEntry, g);
+    showRecapThenReturn(recapEntry, g);
     checkWinConditions();
   }
 
@@ -1251,7 +1258,14 @@
     const snap = await get(ref(db, GAME_REF+'/evidence'));
     const el = document.getElementById('evidence-list');
     if (!snap.exists()) { el.innerHTML = '<div style="color:var(--muted); font-size:13px; grid-column:1/-1;">No kills recorded.</div>'; return; }
-    const entries = Object.values(snap.val());
+    // Deduplicate by victimId — keep only the earliest kill per victim
+    const all = Object.values(snap.val());
+    const seen = new Set();
+    const entries = all.filter(e => {
+      if (seen.has(e.victimId)) return false;
+      seen.add(e.victimId);
+      return true;
+    });
     el.innerHTML = entries.map(e => `
       <div style="background:var(--bg2); border:0.5px solid var(--border); border-radius:var(--radius); overflow:hidden;">
         <img src="${e.photo}" style="width:100%; display:block; aspect-ratio:4/3; object-fit:cover;" />
@@ -1299,11 +1313,28 @@
     }
     el.innerHTML = html;
     showScreen('screen-recap');
+    // Recap countdown display
+    let recapRem = 6;
+    const recapCountEl = document.getElementById('recap-countdown');
+    if (recapCountEl) recapCountEl.textContent = recapRem + 's';
+    const recapCountInterval = setInterval(() => {
+      recapRem--;
+      if (recapCountEl) recapCountEl.textContent = recapRem + 's';
+      if (recapRem <= 0) clearInterval(recapCountInterval);
+    }, 1000);
   }
 
   window.dismissRecap = function() {
     currentPhase = 'playing';
     goToMainScreen();
+  }
+
+  function showRecapThenReturn(recap, g) {
+    showRecap(recap, g);
+    // Auto-dismiss after 6 seconds
+    setTimeout(() => {
+      if (currentPhase === 'recap') dismissRecap();
+    }, 6000);
   }
 
   let myPhotoReviews = {};
@@ -1447,6 +1478,36 @@
 
   let contestTimerInterval = null;
 
+  let killAlertPlayed = new Set();
+
+  function playGunshotSound() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // Crack — short white noise burst
+      const bufSize = ctx.sampleRate * 0.08;
+      const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufSize, 3);
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      // Low-pass filter for body of shot
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 800;
+      filter.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.08);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(1.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      src.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      src.start();
+      src.stop(ctx.currentTime + 0.35);
+    } catch(e) {}
+  }
+
   function checkPendingKills() {
     if (!gameState || myRole !== 'crewmate') return;
     const pending = gameState.pendingKills || {};
@@ -1454,6 +1515,12 @@
     const notice = document.getElementById('kill-contest-notice');
     if (!myKill) { if (notice) notice.style.display = 'none'; return; }
     const [killId, killData] = myKill;
+    // Play alert only once per kill
+    if (!killAlertPlayed.has(killId)) {
+      killAlertPlayed.add(killId);
+      playGunshotSound();
+      if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 400]);
+    }
     notice.style.display = 'block';
     document.getElementById('kill-contest-photo').innerHTML = `<img src="${killData.photo}" style="width:100%; border-radius:8px;" />`;
     // 30s contest window
@@ -2042,6 +2109,11 @@
     await remove(ref(db, GAME_REF));
     showToast('Game reset');
     loadAdminGameState();
+  }
+
+  window.adminRemoveFromLobby = async function(pid) {
+    await remove(ref(db, GAME_REF+'/players/'+pid));
+    showToast('Player removed');
   }
 
   window.openLobbyAdminSettings = async function() {
