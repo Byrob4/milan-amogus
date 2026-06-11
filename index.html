@@ -346,7 +346,8 @@
     <video id="kill-video" autoplay playsinline style="display:none; margin-bottom:12px;"></video>
     <canvas id="kill-canvas"></canvas>
     <div id="kill-photo-preview" style="margin-bottom:12px;"></div>
-    <button class="btn btn-ghost" id="btn-open-camera" onclick="openKillCamera()" style="margin-bottom:8px;">📷 Open camera</button>
+    <div id="face-api-loading" style="font-size:13px; color:var(--amber); margin-bottom:8px;">⏳ Loading face detector, please wait...</div>
+    <button class="btn btn-ghost" id="btn-open-camera" onclick="openKillCamera()" style="margin-bottom:8px;" disabled>📷 Open camera</button>
     <button class="btn btn-danger" id="btn-take-photo" onclick="takeKillPhoto()" style="display:none; margin-bottom:8px;">Take photo</button>
     <button class="btn btn-success" id="btn-confirm-kill" onclick="confirmKill()" disabled style="margin-bottom:8px;">Confirm kill</button>
     <button class="btn btn-ghost" onclick="closeKillOverlay()">Cancel</button>
@@ -402,6 +403,7 @@
   const db = getDatabase(app);
 
   let faceApiReady = false;
+  let faceApiLoadFailed = false;
   async function initFaceApi() {
     try {
       const MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights';
@@ -409,7 +411,12 @@
       faceApiReady = true;
     } catch(e) {
       console.warn('face-api failed to load:', e);
+      faceApiLoadFailed = true;
     }
+    const btn = document.getElementById('btn-open-camera');
+    const notice = document.getElementById('face-api-loading');
+    if (btn) btn.disabled = false;
+    if (notice) notice.style.display = 'none';
   }
   initFaceApi();
 
@@ -961,6 +968,16 @@
     document.getElementById('kill-photo-preview').innerHTML = '';
     document.getElementById('kill-video').style.display = 'none';
     document.getElementById('btn-open-camera').style.display = 'block';
+    document.getElementById('btn-open-camera').disabled = !faceApiReady && !faceApiLoadFailed;
+    const notice = document.getElementById('face-api-loading');
+    if (notice) {
+      if (faceApiReady || faceApiLoadFailed) {
+        notice.style.display = 'none';
+      } else {
+        notice.style.display = 'block';
+        notice.textContent = '⏳ Loading face detector, please wait...';
+      }
+    }
     document.getElementById('btn-take-photo').style.display = 'none';
     document.getElementById('btn-confirm-kill').disabled = true;
     document.getElementById('overlay-kill').classList.add('active');
@@ -1026,17 +1043,24 @@
         const img = new Image();
         img.src = killPhotoData;
         await new Promise(res => { img.onload = res; });
-        const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }));
+        const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.35 }));
         if (!detections || detections.length === 0) {
           btnConfirm.disabled = false;
           btnConfirm.textContent = 'Confirm kill';
-          showToast('No face detected — retake the photo', 3000);
+          showToast('No face detected — retake the photo', 3500);
           return;
         }
       } catch(e) {
-        // face-api error — allow kill to not block game
+        // face-api runtime error — allow kill
       }
+    } else if (!faceApiLoadFailed) {
+      // Models still loading — block kill
+      btnConfirm.disabled = false;
+      btnConfirm.textContent = 'Confirm kill';
+      showToast('Face detector still loading, try again', 3000);
+      return;
     }
+    // faceApiLoadFailed = model never loaded, skip detection silently
     closeOverlay('overlay-kill');
     const victimName = killTargetName || gameState.players[killTarget]?.name || 'Unknown';
     await update(ref(db), {
