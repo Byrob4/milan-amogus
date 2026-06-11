@@ -150,6 +150,14 @@
   <button class="btn btn-primary" id="btn-done-review" onclick="submitPhotoReviews()">Done — proceed to vote</button>
 </div>
 
+<!-- MEETING RECAP -->
+<div class="screen" id="screen-recap">
+  <div style="font-size:13px; font-weight:600; color:var(--muted); letter-spacing:0.08em; margin-bottom:16px;">MEETING RECAP</div>
+  <div id="recap-content"></div>
+  <div class="gap"></div>
+  <button class="btn btn-primary" style="margin-top:16px;" onclick="dismissRecap()">Continue</button>
+</div>
+
 <!-- MAIN GAME (crewmate) -->
 <div class="screen" id="screen-main">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
@@ -159,7 +167,7 @@
     </div>
     <div id="main-role-pill"></div>
   </div>
-  <div id="dead-notice" class="dead-notice" style="display:none">You have been eliminated. Keep completing tasks — they still count.</div>
+  <div id="dead-notice" class="dead-notice" style="display:none">💀 You have been eliminated. You can still complete tasks — but you cannot speak to other players or vote.</div>
   <div id="kill-contest-notice" style="display:none; background:rgba(226,75,74,0.12); border:1px solid rgba(226,75,74,0.5); border-radius:var(--radius); padding:16px; margin-bottom:16px; text-align:center;">
     <div style="font-size:15px; font-weight:600; color:var(--imp); margin-bottom:8px;">You have been killed!</div>
     <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">Review the photo. Contest within <span id="contest-timer" style="font-weight:600; color:var(--text);">30s</span> if it's invalid.</div>
@@ -180,7 +188,10 @@
     <div class="progress-bar" style="margin-bottom:16px;"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
     <div id="tasks-list"></div>
     <div class="spacer"></div>
+    <div class="spacer"></div>
     <button class="btn btn-ghost" id="btn-emergency" onclick="callEmergency()">🚨 Emergency meeting</button>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" style="font-size:13px; padding:10px;" onclick="openReport()">⚠ Report player</button>
   </div>
   <div id="tab-players" style="display:none">
     <div class="label">Alive</div>
@@ -247,6 +258,8 @@
   </div>
   <div class="gap"></div>
   <button class="btn btn-ghost" id="imp-btn-emergency" onclick="callEmergency()">🚨 Emergency meeting</button>
+  <div class="spacer"></div>
+  <button class="btn btn-ghost" style="font-size:13px; padding:10px;" onclick="openReport()">⚠ Report player</button>
 </div>
 
 <!-- RESULT -->
@@ -329,6 +342,12 @@
         <option value="0">Disabled</option>
         <option value="1">Enabled — players vote on kill photos</option>
       </select>
+      <div class="spacer"></div>
+      <div class="label">Starting lives per player</div>
+      <input type="number" id="setting-lives" value="2" min="1" max="5" />
+      <div class="spacer"></div>
+      <div class="label">Emergency meeting cooldown (seconds)</div>
+      <input type="number" id="setting-emergency-cooldown" value="180" min="30" max="600" />
       <div class="spacer"></div>
       <div class="label">Admin password</div>
       <input type="password" id="setting-password" placeholder="Leave blank to keep current" />
@@ -414,6 +433,22 @@
   </div>
 </div>
 
+<!-- OVERLAY: Report player -->
+<div class="overlay" id="overlay-report">
+  <div class="overlay-box">
+    <h3 style="margin-bottom:8px;">Report a player</h3>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:16px;">Report a rule violation. This will be logged for the admin.</div>
+    <div class="label">Player</div>
+    <select id="report-player-select" style="margin-bottom:12px;"></select>
+    <div class="label">Violation</div>
+    <textarea id="report-reason" placeholder="Describe the violation..." style="min-height:80px;"></textarea>
+    <div class="spacer"></div>
+    <button class="btn btn-danger" onclick="submitReport()">Submit report</button>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="closeOverlay('overlay-report')">Cancel</button>
+  </div>
+</div>
+
 <!-- Sabotage banner -->
 <div id="sabotage-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:200; background:rgba(226,75,74,0.95); padding:14px 20px; text-align:center;">
   <div style="font-size:12px; font-weight:700; letter-spacing:0.08em; margin-bottom:4px;">SYSTEM ANNOUNCEMENT</div>
@@ -468,7 +503,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, adminPassword: ADMIN_PASSWORD_DEFAULT };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, adminPassword: ADMIN_PASSWORD_DEFAULT };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -648,6 +683,7 @@
     ids.forEach((id) => {
       updates[GAME_REF + '/players/' + id + '/role'] = impostorIds.has(id) ? 'impostor' : 'crewmate';
       updates[GAME_REF + '/players/' + id + '/missions'] = assignMissions();
+      updates[GAME_REF + '/players/' + id + '/lives'] = settings.lives || 2;
     });
     updates[GAME_REF + '/impostorCount'] = impostorCount;
     updates[GAME_REF + '/state'] = 'playing';
@@ -802,15 +838,15 @@
       document.getElementById('paused-notice').style.display = isPaused ? 'block' : 'none';
       document.getElementById('progress-fill').style.width = progress + '%';
       renderTasks(me);
-      renderPlayerList('players-alive', alive);
-      renderPlayerList('players-dead', dead);
+      renderPlayerList('players-alive', alive, currentPhase==='voting');
+      renderPlayerList('players-dead', dead, currentPhase==='voting');
       document.getElementById('btn-emergency').disabled = !!gameState.meetingActive || !!gameState.votingActive || isPaused;
       document.getElementById('tab-vote-btn').style.display = 'none';
     } else {
       document.getElementById('imp-paused-notice').style.display = isPaused ? 'block' : 'none';
       renderKillList(alive.filter(p => p.role !== 'impostor'));
-      renderPlayerList('imp-players-alive', alive);
-      renderPlayerList('imp-players-dead', dead);
+      renderPlayerList('imp-players-alive', alive, true);
+      renderPlayerList('imp-players-dead', dead, true);
       renderCooldown();
       const sabotageUsed = gameState.sabotageUsed;
       document.getElementById('sabotage-used-notice').style.display = sabotageUsed ? 'block' : 'none';
@@ -843,7 +879,7 @@
     `).join('');
   }
 
-  function renderPlayerList(elId, players) {
+  function renderPlayerList(elId, players, showLives) {
     const el = document.getElementById(elId);
     if (!el) return;
     if (!players.length) { el.innerHTML = '<div style="color:var(--muted); font-size:13px; padding:8px 0;">None</div>'; return; }
@@ -851,7 +887,9 @@
       <div class="player-row">
         <div class="player-dot" style="background:${p.color}"></div>
         <span style="flex:1;">${p.name}</span>
-        ${p.alive ? '' : '<span class="pill pill-dead">eliminated</span>'}
+        ${showLives && p.lives !== undefined ? `<span style="font-size:12px; color:var(--amber); margin-right:6px;">${'❤️'.repeat(Math.max(0,p.lives))}</span>` : ''}
+        ${!p.alive && !p.pendingKill ? '<span class="pill pill-dead">eliminated</span>' : ''}
+        ${p.pendingKill ? '<span class="pill" style="background:rgba(224,151,42,0.15);color:var(--amber);">injured</span>' : ''}
       </div>
     `).join('');
   }
@@ -977,6 +1015,14 @@
       if (c > topCount) { topId = id; topCount = c; tie = false; }
       else if (c === topCount) { tie = true; }
     });
+    // Build recap
+    const recapEntry = {
+      timestamp: Date.now(),
+      ejected: null,
+      skipped: false,
+      tie: false,
+      voteBreakdown: counts
+    };
     const updates = {
       [GAME_REF+'/votingActive']: false,
       [GAME_REF+'/meetingActive']: false,
@@ -984,17 +1030,24 @@
       [GAME_REF+'/voteEndTime']: null,
       [GAME_REF+'/emergencyCalledBy']: null
     };
-    if (!tie && topId && topId !== 'skip' && g.players[topId]) {
+    if (tie || !topId || topId === 'skip') {
+      recapEntry.skipped = true;
+      recapEntry.tie = tie;
+    } else if (topId && g.players[topId]) {
+      const ejected = g.players[topId];
       updates[GAME_REF+'/players/'+topId+'/alive'] = false;
       updates[GAME_REF+'/players/'+topId+'/ejected'] = true;
-      if (g.players[topId].role === 'impostor') {
+      recapEntry.ejected = { id: topId, name: ejected.name, role: ejected.role, votes: topCount };
+      if (ejected.role === 'impostor') {
         updates[GAME_REF+'/state'] = 'ended';
         updates[GAME_REF+'/winner'] = 'crewmates';
-        updates[GAME_REF+'/endReason'] = `${g.players[topId].name} was the impostor. Crewmates win!`;
+        updates[GAME_REF+'/endReason'] = `${ejected.name} was the impostor. Crewmates win!`;
       }
     }
+    updates[GAME_REF+'/lastRecap'] = recapEntry;
     await update(ref(db), updates);
-    currentPhase = 'playing';
+    currentPhase = 'recap';
+    showRecap(recapEntry, g);
     checkWinConditions();
   }
 
@@ -1051,6 +1104,49 @@
     `).join('');
   }
 
+  function showRecap(recap, g) {
+    const el = document.getElementById('recap-content');
+    const players = g.players || {};
+    let html = '';
+    if (recap.skipped) {
+      html += `<div style="text-align:center; padding:24px 0;">
+        <div style="font-size:48px; margin-bottom:12px;">⏭</div>
+        <div style="font-size:18px; font-weight:600;">No one was ejected</div>
+        <div style="font-size:13px; color:var(--muted); margin-top:6px;">${recap.tie ? 'Tie vote' : 'Skipped'}</div>
+      </div>`;
+    } else if (recap.ejected) {
+      const isImp = recap.ejected.role === 'impostor';
+      html += `<div style="text-align:center; padding:16px 0;">
+        <div style="font-size:48px; margin-bottom:12px;">${isImp ? '✅' : '❌'}</div>
+        <div style="font-size:18px; font-weight:600;">${recap.ejected.name} was ejected</div>
+        <div style="font-size:14px; color:${isImp?'var(--green)':'var(--imp)'}; margin-top:6px; font-weight:600;">
+          ${isImp ? 'They were the Impostor!' : 'They were not the Impostor.'}
+        </div>
+        <div style="font-size:13px; color:var(--muted); margin-top:4px;">${recap.ejected.votes} vote${recap.ejected.votes!==1?'s':''}</div>
+      </div>`;
+    }
+    // Vote breakdown
+    if (recap.voteBreakdown && Object.keys(recap.voteBreakdown).length) {
+      html += `<div class="label" style="margin-top:16px;">Vote breakdown</div>`;
+      html += Object.entries(recap.voteBreakdown).map(([id, count]) => {
+        const name = id === 'skip' ? 'Skip' : (players[id]?.name || id);
+        const color = id === 'skip' ? 'var(--muted)' : (players[id]?.color || 'var(--muted)');
+        return `<div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:0.5px solid var(--border); font-size:14px;">
+          <div class="player-dot" style="background:${color}"></div>
+          <span style="flex:1;">${name}</span>
+          <span style="font-weight:600;">${count}</span>
+        </div>`;
+      }).join('');
+    }
+    el.innerHTML = html;
+    showScreen('screen-recap');
+  }
+
+  window.dismissRecap = function() {
+    currentPhase = 'playing';
+    goToMainScreen();
+  }
+
   let myPhotoReviews = {};
 
   function showPhotoReview() {
@@ -1096,9 +1192,25 @@
       if (reviewCount >= totalVoters) {
         const invalidCount = Object.values(reviews).filter(v => v === 'invalid').length;
         if (invalidCount > totalVoters / 2) {
-          // Majority says invalid — revive the player
-          updates[GAME_REF+'/players/'+e.victimId+'/alive'] = true;
-          updates[GAME_REF+'/players/'+e.victimId+'/revivedByReview'] = true;
+          // Majority says invalid — restore life and revive
+          const victim = gameState.players?.[e.victimId];
+          const restoredLives = (victim?.lives || 0) + 1;
+          updates[GAME_REF+'/players/'+e.victimId+'/lives'] = restoredLives;
+          updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
+          updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
+          // Also resolve the pending kill
+          if (e.pendingKillId) {
+            updates[GAME_REF+'/pendingKills/'+e.pendingKillId+'/resolved'] = true;
+          }
+        } else {
+          // Kill confirmed — make death permanent
+          updates[GAME_REF+'/players/'+e.victimId+'/alive'] = false;
+          updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
+          updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
+          if (e.killId || e.pendingKillId) {
+            const kid = e.killId || e.pendingKillId;
+            updates[GAME_REF+'/pendingKills/'+kid+'/resolved'] = true;
+          }
         }
         updates[GAME_REF+'/pendingEvidence/'+killId] = null;
         updates[GAME_REF+'/photoReviews/'+killId] = null;
@@ -1142,12 +1254,14 @@
     const notice = document.getElementById('kill-contest-notice');
     if (notice) notice.style.display = 'none';
     if (contestTimerInterval) clearInterval(contestTimerInterval);
+    const killData = gameState.pendingKills?.[killId];
     await update(ref(db), {
       [GAME_REF+'/pendingKills/'+killId+'/resolved']: true,
       [GAME_REF+'/players/'+myPlayerId+'/alive']: false,
-      [GAME_REF+'/players/'+myPlayerId+'/pendingKill']: false
+      [GAME_REF+'/players/'+myPlayerId+'/pendingKill']: false,
+      [GAME_REF+'/players/'+myPlayerId+'/temporarilyDead']: false
     });
-    await push(ref(db, GAME_REF+'/evidence'), gameState.pendingKills[killId]);
+    if (killData) await push(ref(db, GAME_REF+'/evidence'), killData);
     checkWinConditions();
   }
 
@@ -1168,20 +1282,29 @@
       [GAME_REF+'/pendingKills/'+killId+'/contested']: true,
       [GAME_REF+'/pendingKills/'+killId+'/resolved']: false
     });
-    showToast('Kill contested — will be discussed at next meeting', 4000);
-    // Add to pending evidence for review
-    if (gameState.pendingKills && gameState.pendingKills[killId]) {
-      await push(ref(db, GAME_REF+'/pendingEvidence'), { ...gameState.pendingKills[killId], killId });
+    // Save to pendingEvidence on Firebase so all players see it in next meeting
+    const killData = gameState.pendingKills?.[killId];
+    if (killData) {
+      await push(ref(db, GAME_REF+'/pendingEvidence'), { ...killData, killId, pendingKillId: killId });
     }
+    showToast('Kill contested — will be discussed at next meeting', 4000);
   }
 
   window.callEmergency = async function() {
     if (gameState.meetingActive || gameState.votingActive) return;
-    const meetingEnd = Date.now() + (settings.meetingDuration||300)*1000;
+    const now = Date.now();
+    const cooldownUntil = gameState.emergencyCooldownUntil || 0;
+    if (now < cooldownUntil) {
+      const rem = Math.ceil((cooldownUntil - now) / 1000);
+      showToast(`Emergency on cooldown — ${rem}s remaining`, 3000);
+      return;
+    }
+    const meetingEnd = now + (settings.meetingDuration||300)*1000;
     await update(ref(db), {
       [GAME_REF+'/emergencyCalledBy']: myPlayerId,
       [GAME_REF+'/meetingActive']: true,
       [GAME_REF+'/meetingEndTime']: meetingEnd,
+      [GAME_REF+'/emergencyCooldownUntil']: now + (settings.emergencyCooldown||180)*1000,
       [GAME_REF+'/votingActive']: false,
       [GAME_REF+'/votes']: null
     });
@@ -1293,9 +1416,14 @@
       victimId: killTarget, victimName, photo: killPhotoData,
       killedAt: Date.now(), revealAt: Date.now() + 60000, contested: false, resolved: false
     };
-    // Mark player as pending-dead immediately
+    // Reduce victim's lives and mark as pending
+    const victim = gameState.players[killTarget];
+    const currentLives = (victim?.lives || 1) - 1;
+    const isTemporarilyDead = currentLives <= 0;
     await update(ref(db), {
       [GAME_REF+'/players/'+killTarget+'/pendingKill']: true,
+      [GAME_REF+'/players/'+killTarget+'/lives']: currentLives,
+      [GAME_REF+'/players/'+killTarget+'/temporarilyDead']: isTemporarilyDead,
       [GAME_REF+'/killCooldownUntil']: Date.now() + (settings.cooldown||120)*1000
     });
     const killRef = await push(ref(db, GAME_REF+'/pendingKills'), killData);
@@ -1474,6 +1602,8 @@
     document.getElementById('setting-impostors').value = settings.impostorCount || 1;
     document.getElementById('setting-face-detection').value = settings.faceDetection !== undefined ? settings.faceDetection : 1;
     document.getElementById('setting-photo-review').value = settings.photoReview || 0;
+    document.getElementById('setting-lives').value = settings.lives || 2;
+    document.getElementById('setting-emergency-cooldown').value = settings.emergencyCooldown || 180;
   }
 
   async function loadAdminGameState() {
@@ -1488,11 +1618,18 @@
       pauseBtn.textContent = isPaused ? 'Resume game' : 'Pause game';
       pauseBtn.className = isPaused ? 'btn btn-success' : 'btn btn-amber';
     }
+    const reports = g.reports ? Object.values(g.reports) : [];
     el.innerHTML = `
       <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:14px;"><span>State</span><span>${g.paused?'⏸ paused':g.state||'lobby'}</span></div>
       <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:14px;"><span>Players</span><span>${Object.keys(players).length}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0;font-size:14px;"><span>Voting</span><span>${g.votingActive?'Yes':'No'}</span></div>
-    `;
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:14px;"><span>Voting</span><span>${g.votingActive?'Yes':'No'}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0;font-size:14px;"><span>Reports</span><span style="color:${reports.length?'var(--imp)':'var(--muted)'};">${reports.length}</span></div>
+    ` + (reports.length ? `<div class="label" style="margin-top:12px;">Player reports</div>` + reports.map(r => `
+      <div style="background:var(--bg3); border-radius:var(--radius-sm); padding:10px; margin-bottom:8px; font-size:13px;">
+        <div style="font-weight:600; color:var(--imp);">${r.reportedName}</div>
+        <div style="color:var(--muted); margin:2px 0;">Reported by ${r.reportedByName}</div>
+        <div>${r.reason}</div>
+      </div>`).join('') : '');
   }
 
   window.saveSettings = async function() {
@@ -1504,6 +1641,8 @@
       impostorCount: parseInt(document.getElementById('setting-impostors').value)||1,
       faceDetection: parseInt(document.getElementById('setting-face-detection').value),
       photoReview: parseInt(document.getElementById('setting-photo-review').value),
+      lives: parseInt(document.getElementById('setting-lives').value)||2,
+      emergencyCooldown: parseInt(document.getElementById('setting-emergency-cooldown').value)||180,
     };
     const newPwd = document.getElementById('setting-password').value;
     if (newPwd) s.adminPassword = newPwd;
@@ -1544,6 +1683,32 @@
     await remove(ref(db, MISSIONS_REF+'/'+id));
     showToast('Mission deleted');
     loadAdminMissions();
+  }
+
+  window.openReport = function() {
+    const players = gameState?.players || {};
+    const others = Object.entries(players).filter(([id]) => id !== myPlayerId);
+    const sel = document.getElementById('report-player-select');
+    sel.innerHTML = others.map(([id, p]) => `<option value="${id}">${p.name}</option>`).join('');
+    document.getElementById('report-reason').value = '';
+    document.getElementById('overlay-report').classList.add('active');
+  }
+
+  window.submitReport = async function() {
+    const playerId = document.getElementById('report-player-select').value;
+    const reason = document.getElementById('report-reason').value.trim();
+    if (!reason) { showToast('Describe the violation'); return; }
+    const player = gameState?.players?.[playerId];
+    await push(ref(db, GAME_REF+'/reports'), {
+      reportedId: playerId,
+      reportedName: player?.name || 'Unknown',
+      reportedBy: myPlayerId,
+      reportedByName: myName,
+      reason,
+      timestamp: Date.now()
+    });
+    closeOverlay('overlay-report');
+    showToast('Report submitted');
   }
 
   window.togglePauseGame = async function() {
