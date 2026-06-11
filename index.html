@@ -133,6 +133,16 @@
   </div>
 </div>
 
+<!-- PHOTO REVIEW -->
+<div class="screen" id="screen-photo-review">
+  <div style="font-size:13px; font-weight:600; color:var(--imp); letter-spacing:0.08em; margin-bottom:8px;">KILL REVIEW</div>
+  <div style="font-size:15px; font-weight:500; margin-bottom:4px;">Did this kill happen correctly?</div>
+  <div style="font-size:13px; color:var(--muted); margin-bottom:20px;">The photo must clearly show the victim's face.</div>
+  <div id="review-list"></div>
+  <div class="gap"></div>
+  <button class="btn btn-primary" id="btn-done-review" onclick="submitPhotoReviews()">Done — proceed to vote</button>
+</div>
+
 <!-- MAIN GAME (crewmate) -->
 <div class="screen" id="screen-main">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
@@ -292,6 +302,18 @@
       <div class="label">Number of impostors</div>
       <input type="number" id="setting-impostors" value="1" min="1" max="3" />
       <div class="spacer"></div>
+      <div class="label">Face detection on kill</div>
+      <select id="setting-face-detection">
+        <option value="1">Enabled</option>
+        <option value="0">Disabled</option>
+      </select>
+      <div class="spacer"></div>
+      <div class="label">Photo review during meeting</div>
+      <select id="setting-photo-review">
+        <option value="0">Disabled</option>
+        <option value="1">Enabled — players vote on kill photos</option>
+      </select>
+      <div class="spacer"></div>
       <div class="label">Admin password</div>
       <input type="password" id="setting-password" placeholder="Leave blank to keep current" />
       <div class="spacer"></div>
@@ -430,7 +452,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, adminPassword: ADMIN_PASSWORD_DEFAULT };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, adminPassword: ADMIN_PASSWORD_DEFAULT };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -947,6 +969,67 @@
     `).join('');
   }
 
+  let myPhotoReviews = {};
+
+  function showPhotoReview() {
+    showScreen('screen-photo-review');
+    const evidence = gameState.pendingEvidence || {};
+    const entries = Object.entries(evidence);
+    const el = document.getElementById('review-list');
+    if (!entries.length) {
+      el.innerHTML = '<div style="color:var(--muted); font-size:14px; text-align:center; padding:24px 0;">No kills to review.</div>';
+      return;
+    }
+    myPhotoReviews = {};
+    el.innerHTML = entries.map(([killId, e]) => `
+      <div class="card" style="margin-bottom:16px;">
+        <img src="${e.photo}" style="width:100%; border-radius:8px; display:block; margin-bottom:10px; aspect-ratio:4/3; object-fit:cover;" />
+        <div style="font-weight:600; margin-bottom:8px;">💀 ${e.victimName}</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <button class="btn btn-success" id="review-valid-${killId}" onclick="setReview('${killId}','valid')" style="font-size:13px; padding:8px;">✓ Valid</button>
+          <button class="btn btn-danger" id="review-invalid-${killId}" onclick="setReview('${killId}','invalid')" style="font-size:13px; padding:8px;">✗ Invalid</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  window.setReview = function(killId, verdict) {
+    myPhotoReviews[killId] = verdict;
+    document.getElementById('review-valid-'+killId).style.opacity = verdict === 'valid' ? '1' : '0.4';
+    document.getElementById('review-invalid-'+killId).style.opacity = verdict === 'invalid' ? '1' : '0.4';
+  }
+
+  window.submitPhotoReviews = async function() {
+    const evidence = gameState.pendingEvidence || {};
+    const entries = Object.entries(evidence);
+    const totalVoters = Object.values(gameState.players||{}).filter(p=>p.alive).length;
+    const updates = {};
+    for (const [killId, e] of entries) {
+      const reviewsSnap = await get(ref(db, GAME_REF+'/photoReviews/'+killId));
+      const reviews = reviewsSnap.exists() ? reviewsSnap.val() : {};
+      reviews[myPlayerId] = myPhotoReviews[killId] || 'skip';
+      updates[GAME_REF+'/photoReviews/'+killId] = reviews;
+      // Check if all alive players have reviewed
+      const reviewCount = Object.keys(reviews).filter(k => reviews[k] !== 'skip').length;
+      if (reviewCount >= totalVoters) {
+        const invalidCount = Object.values(reviews).filter(v => v === 'invalid').length;
+        if (invalidCount > totalVoters / 2) {
+          // Majority says invalid — revive the player
+          updates[GAME_REF+'/players/'+e.victimId+'/alive'] = true;
+          updates[GAME_REF+'/players/'+e.victimId+'/revivedByReview'] = true;
+        }
+        updates[GAME_REF+'/pendingEvidence/'+killId] = null;
+        updates[GAME_REF+'/photoReviews/'+killId] = null;
+      }
+    }
+    updates[GAME_REF+'/meetingActive'] = false;
+    updates[GAME_REF+'/votingActive'] = true;
+    updates[GAME_REF+'/voteEndTime'] = Date.now() + (settings.voteDuration||60)*1000;
+    await update(ref(db), updates);
+    currentPhase = 'voting';
+    showVotingScreen();
+  }
+
   window.callEmergency = async function() {
     if (gameState.meetingActive || gameState.votingActive) return;
     const meetingEnd = Date.now() + (settings.meetingDuration||300)*1000;
@@ -1038,7 +1121,7 @@
     const btnConfirm = document.getElementById('btn-confirm-kill');
     btnConfirm.disabled = true;
     btnConfirm.textContent = 'Verifying photo...';
-    if (faceApiReady) {
+    if (settings.faceDetection !== 0 && faceApiReady) {
       try {
         const img = new Image();
         img.src = killPhotoData;
@@ -1053,23 +1136,23 @@
       } catch(e) {
         // face-api runtime error — allow kill
       }
-    } else if (!faceApiLoadFailed) {
-      // Models still loading — block kill
+    } else if (settings.faceDetection !== 0 && !faceApiReady && !faceApiLoadFailed) {
       btnConfirm.disabled = false;
       btnConfirm.textContent = 'Confirm kill';
       showToast('Face detector still loading, try again', 3000);
       return;
     }
-    // faceApiLoadFailed = model never loaded, skip detection silently
     closeOverlay('overlay-kill');
     const victimName = killTargetName || gameState.players[killTarget]?.name || 'Unknown';
     await update(ref(db), {
       [GAME_REF+'/players/'+killTarget+'/alive']: false,
       [GAME_REF+'/killCooldownUntil']: Date.now() + (settings.cooldown||120)*1000
     });
-    await push(ref(db, GAME_REF+'/evidence'), {
-      victimId: killTarget, victimName, photo: killPhotoData, killedAt: Date.now()
-    });
+    const killData = { victimId: killTarget, victimName, photo: killPhotoData, killedAt: Date.now() };
+    await push(ref(db, GAME_REF+'/evidence'), killData);
+    if (settings.photoReview === 1) {
+      await push(ref(db, GAME_REF+'/pendingEvidence'), killData);
+    }
     killTarget = null; killPhotoData = null;
     showToast('Kill confirmed');
     checkWinConditions();
@@ -1236,6 +1319,8 @@
     document.getElementById('setting-vote-duration').value = settings.voteDuration || 60;
     document.getElementById('setting-meeting-duration').value = settings.meetingDuration || 300;
     document.getElementById('setting-impostors').value = settings.impostorCount || 1;
+    document.getElementById('setting-face-detection').value = settings.faceDetection !== undefined ? settings.faceDetection : 1;
+    document.getElementById('setting-photo-review').value = settings.photoReview || 0;
   }
 
   async function loadAdminGameState() {
@@ -1264,6 +1349,8 @@
       voteDuration: parseInt(document.getElementById('setting-vote-duration').value)||60,
       meetingDuration: parseInt(document.getElementById('setting-meeting-duration').value)||300,
       impostorCount: parseInt(document.getElementById('setting-impostors').value)||1,
+      faceDetection: parseInt(document.getElementById('setting-face-detection').value),
+      photoReview: parseInt(document.getElementById('setting-photo-review').value),
     };
     const newPwd = document.getElementById('setting-password').value;
     if (newPwd) s.adminPassword = newPwd;
