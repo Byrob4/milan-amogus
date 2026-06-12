@@ -1090,24 +1090,7 @@
     ids.forEach((id) => {
       updates[GAME_REF + '/players/' + id + '/role'] = impostorIds.has(id) ? 'impostor' : 'crewmate';
       updates[GAME_REF + '/players/' + id + '/lives'] = settings.lives || 2;
-      // Build mission list: maybe one co-op (unique), rest normal
-      const playerMissions = [];
-      // ~1 in 3 chance to get a co-op if any remain
-      if (coopIndex < coopPool.length && Math.random() < 0.4) {
-        const c = coopPool[coopIndex++];
-        const { id: cid, ...crest } = c;
-        playerMissions.push({ ...crest, done: false });
-      }
-      const remaining = tasksPerPlayer - playerMissions.length;
-      const shuffledNormal = shuffle(normalPool);
-      for (let k = 0; k < remaining && k < shuffledNormal.length; k++) {
-        const { id: nid, ...nrest } = shuffledNormal[k];
-        playerMissions.push({ ...nrest, done: false });
-      }
-      // Convert to keyed object
-      const missionsObj = {};
-      playerMissions.forEach((m, idx) => { missionsObj['m'+idx] = m; });
-      updates[GAME_REF + '/players/' + id + '/missions'] = missionsObj;
+      updates[GAME_REF + '/players/' + id + '/missions'] = {};
     });
     updates[GAME_REF + '/impostorCount'] = impostorCount;
     updates[GAME_REF + '/state'] = 'playing';
@@ -1223,7 +1206,6 @@
     if (meeting && currentPhase !== 'meeting') {
       currentPhase = 'meeting';
       startMeetingCountdown();
-      return;
     }
     if (voting && currentPhase !== 'voting') {
       currentPhase = 'voting';
@@ -1309,7 +1291,7 @@
         clearInterval(meetingTimerInterval);
         document.getElementById('meeting-banner').style.display = 'none';
         document.getElementById('meeting-pill').style.display = 'none';
-        if (gameState.meetingActive) {
+        if (gameState.meetingActive && isAdmin) {
           get(ref(db, GAME_REF+'/pendingEvidence')).then(snap => {
             if (snap.exists() && Object.keys(snap.val()).length > 0) {
               currentPhase = 'review';
@@ -1544,8 +1526,10 @@
     showToast('✗ Breach failed — hacking activated');
   }
 
-  // Realtime settings listener so label/countdown updates propagate to all clients without rejoin
+  let _settingsListenerAttached = false;
   function listenSettings() {
+    if (_settingsListenerAttached) return;
+    _settingsListenerAttached = true;
     onValue(ref(db, SETTINGS_REF), (snap) => {
       if (snap.exists()) {
         settings = { ...settings, ...snap.val() };
@@ -1639,36 +1623,35 @@
   function renderImpTasks() {
     const me = gameState?.players?.[myPlayerId];
     if (!me) return;
-    const allM = Object.values(me.missions || {});
     const el = document.getElementById('imp-tasks-list');
     if (!el) return;
-    const indexed = allM.map((m, i) => ({ m, i })).filter(x => !x.m.done);
-    if (!indexed.length) { el.innerHTML = '<div style="color:var(--muted); font-size:13px;">All tasks done.</div>'; return; }
-    el.innerHTML = indexed.map(({ m, i }) => `
-      <div class="mission-card ${m.done ? 'done' : ''}">
+    const pending = Object.entries(me.missions || {}).filter(([, m]) => !m.done);
+    if (!pending.length) { el.innerHTML = '<div style="color:var(--muted); font-size:13px;">All tasks done.</div>'; return; }
+    el.innerHTML = pending.map(([mkey, m]) => `
+      <div class="mission-card">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
           <div style="flex:1;">
-            <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location}</div>
+            <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location||''}</div>
             <div style="font-weight:500;">${m.description.replace('{pass}', settings.quizPassScore||4)}</div>
-            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo' : m.proofType === 'audio' ? '🎙 Audio' : '🔢 Code'}</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo' : m.proofType === 'audio' ? '🎙 Audio' : m.proofType==='quiz'?'🧠 Quiz':'🔢 Code'}</div>
           </div>
-          <button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="${m.category==='coop'?`openCoop(${i})`:`openProof(${i})`}">${m.category==='coop'?'👥':'Complete'}</button>
+          <button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="${m.category==='coop'?`openCoopByKey('${mkey}')`:(m.proofType==='quiz'?`openQuizByKey('${mkey}',0)`:`openProofByKey('${mkey}')`)}">Complete</button>
         </div>
       </div>
     `).join('');
   }
 
   function renderTasks(me) {
-    const allM = Object.values(me.missions || {});
+    const allM = Object.entries(me.missions || {});
     const el = document.getElementById('tasks-list');
-    // Only show NOT done missions (keep original index for actions)
-    const indexed = allM.map((m, i) => ({ m, i })).filter(x => !x.m.done);
-    if (!indexed.length) {
+    // Show only not-done, keyed by Firebase key
+    const pending = allM.filter(([, m]) => !m.done);
+    if (!pending.length) {
       el.innerHTML = '<div style="color:var(--green); font-size:14px; text-align:center; padding:24px 0;">✓ All your tasks are complete!</div>';
       return;
     }
-    el.innerHTML = indexed.map(({ m, i }) => `
-      <div class="mission-card ${m.done ? 'done' : ''}">
+    el.innerHTML = pending.map(([mkey, m]) => `
+      <div class="mission-card">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
           <div style="flex:1;">
             <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location || ''} ${m.category ? '· '+m.category : ''}</div>
@@ -1676,8 +1659,8 @@
             <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.category==='coop' ? '👥 Co-op mission' : m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : m.proofType === 'none' ? '✔ No proof' : m.proofType === 'quiz' ? '🧠 Quiz' : '🔢 Secret code required'}</div>
           </div>
           <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;">
-            <button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="${m.category==='coop'?`openCoop(${i})`:(m.proofType==='quiz'?`openQuiz(${i})`:`openProof(${i})`)}">${m.category==='coop'?'👥 Co-op':m.proofType==='quiz'?'🧠 Quiz':'Complete'}</button>
-            <button class="btn btn-ghost" style="width:auto; padding:5px 12px; font-size:11px;" onclick="rerollTask(${i})">🎲 Reroll</button>
+            <button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="${m.category==='coop'?`openCoopByKey('${mkey}')`:(m.proofType==='quiz'?`openQuizByKey('${mkey}',0)`:`openProofByKey('${mkey}')`)}">${m.category==='coop'?'👥 Co-op':m.proofType==='quiz'?'🧠 Quiz':'Complete'}</button>
+            <button class="btn btn-ghost" style="width:auto; padding:5px 12px; font-size:11px;" onclick="rerollTaskByKey('${mkey}')">🎲 Reroll</button>
           </div>
         </div>
       </div>
@@ -2334,6 +2317,9 @@
     const titleEl = document.getElementById('kill-contest-title');
     if (titleEl) titleEl.textContent = livesLeft > 0 ? 'You have been shot!' : 'You have been killed!';
     document.getElementById('kill-contest-photo').innerHTML = `<img src="${killData.photo}" style="width:100%; border-radius:8px;" />`;
+    // Only start timer if not already running for this kill
+    if (notice._killId === killId) return;
+    notice._killId = killId;
     // 30s contest window
     let rem = 30;
     if (contestTimerInterval) clearInterval(contestTimerInterval);
@@ -2346,7 +2332,6 @@
         await acceptKillById(killId);
       }
     }, 1000);
-    notice._killId = killId;
   }
 
   async function acceptKillById(killId) {
@@ -2446,6 +2431,7 @@
   let quizWrong = 0;
 
   let coopMissionIdx = null;
+  let coopMissionKey = null;
   let coopSessionId = null;
   let coopTimerInterval = null;
   let coopListener = null;
@@ -2692,6 +2678,36 @@
     return 'generic';
   }
 
+  window.coopStartByKey = async function(mkey) {
+    const code = String(Math.floor(1000 + Math.random()*9000));
+    coopSessionId = code;
+    const me = gameState.players[myPlayerId];
+    const mission = me.missions?.[mkey];
+    if (!mission) return;
+    await set(ref(db, GAME_REF+'/coopSessions/'+code), {
+      hostId: myPlayerId, hostName: myName,
+      hostMissionKey: mkey,
+      description: mission.description,
+      type: coopMissionType(mission.description),
+      joinerId: null, status: 'waiting', createdAt: Date.now()
+    });
+    document.getElementById('coop-step-choose').style.display = 'none';
+    document.getElementById('coop-step-host').style.display = 'block';
+    document.getElementById('coop-code-display').textContent = code;
+    if (coopListener) coopListener();
+    let hostProceeded = false;
+    coopListener = onValue(ref(db, GAME_REF+'/coopSessions/'+code), (snap) => {
+      if (!snap.exists()) return;
+      const s = snap.val();
+      if (s.status === 'complete') { handleCoopComplete(s, true); return; }
+      if (s.status === 'joined' && s.joinerId && !hostProceeded) {
+        hostProceeded = true;
+        document.getElementById('coop-host-status').textContent = s.joinerName + ' joined!';
+        proceedCoop(s, true);
+      }
+    });
+  }
+
   window.coopStart = async function() {
     const code = String(Math.floor(1000 + Math.random()*9000));
     coopSessionId = code;
@@ -2820,11 +2836,10 @@
     const updates = {};
     let myMsg = 'Co-op complete!';
 
-    // Mark host's mission done — resolve actual key by index
+    // Mark host's mission done — prefer explicit key, fall back to index for legacy
     const hostSnap = await get(ref(db, GAME_REF+'/players/'+session.hostId+'/missions'));
     if (hostSnap.exists()) {
-      const keys = Object.keys(hostSnap.val());
-      const hostMissionKey = keys[session.hostMissionIdx];
+      const hostMissionKey = session.hostMissionKey || Object.keys(hostSnap.val())[session.hostMissionIdx];
       if (hostMissionKey) {
         updates[GAME_REF+'/players/'+session.hostId+'/missions/'+hostMissionKey+'/done'] = true;
       }
@@ -3015,10 +3030,69 @@
     }, revealDelay);
   }
 
-  window.openProof = function(missionIdx) {
+  window.openProofByKey = function(mkey) {
     const me = gameState.players[myPlayerId];
-    const missions = Object.values(me.missions || {});
-    currentProofMission = { mission: missions[missionIdx], idx: missionIdx };
+    const mission = me.missions?.[mkey];
+    if (!mission) { showToast('Mission not found'); return; }
+    currentProofMission = { mission, key: mkey };
+    document.getElementById('proof-mission-title').textContent = mission.location || '';
+    document.getElementById('proof-mission-desc').textContent = mission.description;
+    const proofType = mission.proofType;
+    document.getElementById('proof-photo-section').style.display = proofType === 'photo' ? 'block' : 'none';
+    document.getElementById('proof-code-section').style.display = proofType === 'code' ? 'block' : 'none';
+    document.getElementById('proof-audio-section').style.display = proofType === 'audio' ? 'block' : 'none';
+    const noneSection = document.getElementById('proof-none-section');
+    if (noneSection) noneSection.style.display = proofType === 'none' ? 'block' : 'none';
+    if (proofType === 'none') setTimeout(() => { document.getElementById('btn-submit-proof').disabled = false; }, 0);
+    document.getElementById('proof-photo-preview').innerHTML = '';
+    document.getElementById('proof-code-input').value = '';
+    document.getElementById('proof-audio-preview').innerHTML = '';
+    document.getElementById('btn-start-record').disabled = false;
+    document.getElementById('btn-stop-record').disabled = true;
+    document.getElementById('audio-timer').style.display = 'none';
+    proofPhotoData = null; proofAudioData = null;
+    document.getElementById('btn-submit-proof').disabled = true;
+    document.getElementById('overlay-proof').classList.add('active');
+  }
+
+  window.rerollTaskByKey = async function(mkey) {
+    const now = Date.now();
+    const cooldownUntil = gameState.players?.[myPlayerId]?.rerollCooldownUntil || 0;
+    if (now < cooldownUntil) {
+      showToast('Reroll on cooldown — ' + Math.ceil((cooldownUntil-now)/1000) + 's left', 3000); return;
+    }
+    const me = gameState.players[myPlayerId];
+    const current = me.missions?.[mkey];
+    if (!current || current.done) { showToast('Cannot reroll'); return; }
+    const loc = current.location;
+    const myDescriptions = new Set(Object.values(me.missions || {}).map(m => m.description));
+    const candidates = allMissions.filter(m =>
+      m.active !== false && (m.location||'') === (loc||'') && !myDescriptions.has(m.description)
+    );
+    if (!candidates.length) { showToast('No other missions available here', 3000); return; }
+    const replacement = candidates[Math.floor(Math.random() * candidates.length)];
+    const { id, ...rest } = replacement;
+    await update(ref(db), {
+      [GAME_REF+'/players/'+myPlayerId+'/missions/'+mkey]: { ...rest, done: false },
+      [GAME_REF+'/players/'+myPlayerId+'/rerollCooldownUntil']: now + (settings.rerollCooldown||60)*1000
+    });
+    showToast('Task rerolled!');
+  }
+
+  window.openCoopByKey = function(mkey) {
+    const me = gameState.players[myPlayerId];
+    const mission = me.missions?.[mkey];
+    if (!mission) { showToast('Mission not found'); return; }
+    // Store key for later completion
+    coopMissionKey = mkey;
+    coopMissionIdx = null;
+    document.getElementById('coop-title').textContent = 'Co-op: ' + (mission.location || 'mission');
+    document.getElementById('coop-desc').textContent = mission.description;
+    ['choose','host','join','timer','winner','done'].forEach(s =>
+      document.getElementById('coop-step-'+s).style.display = 'none');
+    document.getElementById('overlay-coop').classList.add('active');
+    coopStartByKey(mkey);
+  }
     document.getElementById('proof-mission-title').textContent = missions[missionIdx].location;
     document.getElementById('proof-mission-desc').textContent = missions[missionIdx].description;
     const proofType = missions[missionIdx].proofType;
@@ -3105,7 +3179,13 @@
 
   window.submitProof = async function() {
     if (!currentProofMission) return;
-    const { mission, idx } = currentProofMission;
+    const { mission } = currentProofMission;
+    // Support both key-based (new) and idx-based (legacy) access
+    const missionKey = currentProofMission.key || (() => {
+      const me = gameState.players[myPlayerId];
+      const keys = Object.keys(me.missions || {});
+      return keys[currentProofMission.idx];
+    })();
     if (mission.proofType === 'code') {
       const entered = document.getElementById('proof-code-input').value.trim();
       if (entered !== mission.code) { showToast('Wrong code — try again'); return; }
@@ -3113,10 +3193,6 @@
     if (mission.proofType === 'audio' && !proofAudioData) {
       showToast('Record audio first'); return;
     }
-    // 'none' proof type — no validation, just complete
-    const me = gameState.players[myPlayerId];
-    const missionKeys = Object.keys(me.missions || {});
-    const missionKey = missionKeys[idx];
     const missionUpdates = { [GAME_REF+'/players/'+myPlayerId+'/missions/'+missionKey+'/done']: true };
     if (mission.proofType === 'audio' && proofAudioData) {
       missionUpdates[GAME_REF+'/players/'+myPlayerId+'/missions/'+missionKey+'/audioProof'] = proofAudioData;
@@ -4189,33 +4265,65 @@
   if (scanLocation) {
     document.getElementById('screen-join').classList.remove('active');
     document.getElementById('screen-scan').classList.add('active');
-    document.getElementById('scan-location-name').textContent = decodeURIComponent(scanLocation);
+    const locName = decodeURIComponent(scanLocation);
+    document.getElementById('scan-location-name').textContent = locName;
     const pid = localStorage.getItem('amogus_player_id');
     if (!pid) {
       document.getElementById('scan-content').innerHTML = '<div style="color:var(--muted); font-size:14px;">Join the game first, then scan this QR code.</div>';
     } else {
-      document.getElementById('scan-content').innerHTML = '<div style="font-size:14px; color:var(--muted);">Loading your mission...</div>';
+      document.getElementById('scan-content').innerHTML = '<div style="font-size:14px; color:var(--muted);">Loading...</div>';
       setTimeout(async () => {
-        await loadMissions();
-        const snap = await get(ref(db, GAME_REF+'/players/'+pid));
-        if (!snap.exists()) { document.getElementById('scan-content').innerHTML = '<div style="color:var(--imp);">You are not in an active game.</div>'; return; }
-        const player = snap.val();
-        const missions = Object.values(player.missions||{});
-        const loc = decodeURIComponent(scanLocation);
-        const pending = missions.filter(m => m.location.toLowerCase()===loc.toLowerCase() && !m.done);
-        if (!pending.length) {
-          document.getElementById('scan-content').innerHTML = '<div style="color:var(--green); font-size:15px;">✓ All tasks at this location complete!</div>';
-        } else {
-          const m = pending[0];
-          document.getElementById('scan-content').innerHTML = `
-            <div class="mission-card">
-              <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location}</div>
-              <div style="font-weight:600; font-size:16px; margin-bottom:8px;">${m.description}</div>
-              <div style="font-size:13px; color:var(--muted);">${m.proofType==='photo'?'📷 Photo required':'🔢 Secret code required'}</div>
-            </div>
-            <a href="/" class="btn btn-primary" style="text-decoration:none; margin-top:8px;">Open app to complete</a>
-          `;
+        const [playerSnap] = await Promise.all([
+          get(ref(db, GAME_REF+'/players/'+pid)),
+          loadMissions()
+        ]);
+        if (!playerSnap.exists()) {
+          document.getElementById('scan-content').innerHTML = '<div style="color:var(--imp);">You are not in an active game.</div>';
+          return;
         }
+        const player = playerSnap.val();
+        if (player.role === 'impostor') {
+          document.getElementById('scan-content').innerHTML = '<div style="font-size:15px;">You\'re an impostor — you don\'t need quests. 😈</div>';
+          return;
+        }
+        const existingMissions = Object.values(player.missions || {});
+        // Check if player already has an active (not done) mission from this location
+        const alreadyHere = existingMissions.find(m => m.location?.toLowerCase() === locName.toLowerCase() && !m.done);
+        if (alreadyHere) {
+          document.getElementById('scan-content').innerHTML = `
+            <div style="font-size:13px; color:var(--amber); margin-bottom:12px;">📍 You already have a quest from here:</div>
+            <div class="mission-card">
+              <div style="font-weight:600; font-size:16px; margin-bottom:6px;">${alreadyHere.description}</div>
+              <div style="font-size:13px; color:var(--muted);">${alreadyHere.proofType==='photo'?'📷 Photo required':'🔢 Secret code required'}</div>
+            </div>
+            <a href="/" class="btn btn-primary" style="text-decoration:none; margin-top:8px; display:block; text-align:center;">Open app</a>`;
+          return;
+        }
+        // Pick a random mission from this location's pool that the player hasn't done
+        const doneIds = existingMissions.filter(m => m.done).map(m => m.description);
+        const pool = allMissions.filter(m =>
+          m.active !== false &&
+          m.location?.toLowerCase() === locName.toLowerCase() &&
+          !doneIds.includes(m.description)
+        );
+        if (!pool.length) {
+          document.getElementById('scan-content').innerHTML = `<div style="color:var(--green); font-size:15px;">✓ All quests at ${locName} completed!</div>`;
+          return;
+        }
+        const picked = pool[Math.floor(Math.random() * pool.length)];
+        const { id: _id, ...missionData } = picked;
+        const newKey = 'm' + Date.now();
+        await update(ref(db, GAME_REF+'/players/'+pid+'/missions'), {
+          [newKey]: { ...missionData, done: false }
+        });
+        document.getElementById('scan-content').innerHTML = `
+          <div style="font-size:13px; color:var(--green); margin-bottom:12px;">🎯 New quest unlocked at ${locName}!</div>
+          <div class="mission-card">
+            <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${locName}</div>
+            <div style="font-weight:600; font-size:16px; margin-bottom:8px;">${picked.description}</div>
+            <div style="font-size:13px; color:var(--muted);">${picked.proofType==='photo'?'📷 Photo required':'🔢 Secret code required'}</div>
+          </div>
+          <a href="/" class="btn btn-primary" style="text-decoration:none; margin-top:8px; display:block; text-align:center;">Open app to complete</a>`;
       }, 500);
     }
   }
