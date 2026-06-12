@@ -230,7 +230,6 @@
   <div id="tab-map" style="display:none">
     <div style="text-align:center; position:relative; display:inline-block; width:100%;">
       <canvas id="radar-canvas" width="320" height="320" style="border-radius:50%; display:block; margin:0 auto;"></canvas>
-      <button onclick="centerRadar()" style="position:absolute; top:8px; right:8px; background:var(--bg3); border:0.5px solid var(--border2); color:var(--text); border-radius:var(--radius-sm); padding:6px 10px; font-size:12px; cursor:pointer;">📍 Center</button>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-top:8px; text-align:center;" id="map-gps-status">Acquiring GPS...</div>
     <div id="radar-legend" style="margin-top:12px; font-size:13px;"></div>
@@ -278,7 +277,6 @@
   <div id="imp-tab-map" style="display:none">
     <div style="text-align:center; position:relative; display:inline-block; width:100%;">
       <canvas id="imp-radar-canvas" width="320" height="320" style="border-radius:50%; display:block; margin:0 auto;"></canvas>
-      <button onclick="centerRadar()" style="position:absolute; top:8px; right:8px; background:var(--bg3); border:0.5px solid var(--border2); color:var(--text); border-radius:var(--radius-sm); padding:6px 10px; font-size:12px; cursor:pointer;">📍 Center</button>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-top:8px; text-align:center;" id="imp-map-gps-status">Acquiring GPS...</div>
     <div id="imp-radar-legend" style="margin-top:12px; font-size:13px;"></div>
@@ -1044,7 +1042,9 @@
     updates[GAME_REF + '/evidence'] = null;
     updates[GAME_REF + '/coopSessions'] = null;
     await update(ref(db), updates);
-    // Force own transition (admin) in case listener has stale state
+    // Force own transition (admin)
+    // Close admin screen first, then check role
+    adminGoBack();
     setTimeout(async () => {
       const s = await get(ref(db, GAME_REF));
       if (s.exists()) {
@@ -1056,7 +1056,7 @@
           showRoleReveal();
         }
       }
-    }, 600);
+    }, 800);
   }
 
   function assignMissions() {
@@ -2841,10 +2841,11 @@
         myLatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         const s1 = document.getElementById('map-gps-status');
         const s2 = document.getElementById('imp-map-gps-status');
-        if (s1) s1.textContent = 'GPS active';
-        if (s2) s2.textContent = 'GPS active';
-        drawRadar('radar-canvas', 'radar-legend');
-        drawRadar('imp-radar-canvas', 'imp-radar-legend');
+        // Redraw radar if map tab is visible
+        const mapTab = document.getElementById('tab-map');
+        const impMapTab = document.getElementById('imp-tab-map');
+        if (mapTab && mapTab.style.display !== 'none') drawRadar('radar-canvas', 'radar-legend');
+        if (impMapTab && impMapTab.style.display !== 'none') drawRadar('imp-radar-canvas', 'imp-radar-legend');
       },
       () => {
         const s1 = document.getElementById('map-gps-status');
@@ -2867,70 +2868,131 @@
     return { dist, bearing };
   }
 
-  function drawRadar(canvasId, legendId) {
+  async function drawRadar(canvasId, legendId) {
+    // Ensure locations are loaded
+    if (!allLocations.length) await loadLocations();
+
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const W = canvas.width, H = canvas.height;
-    const cx = W/2, cy = H/2, r = W/2 - 10;
+    const cx = W/2, cy = H/2, r = W/2 - 14;
     const range = settings.radarRange || 500;
+    const active = allLocations.filter(l => l.active !== false && l.lat && l.lng);
 
     ctx.clearRect(0, 0, W, H);
+
+    // Clip to circle
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2*Math.PI); ctx.clip();
+
     // Background
-    ctx.fillStyle = '#0e0e1a';
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2*Math.PI); ctx.fill();
+    ctx.fillStyle = '#060d14';
+    ctx.fillRect(0, 0, W, H);
+
+    // Sweep animation overlay (static green sector for videogame feel)
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    grad.addColorStop(0, 'rgba(0,255,80,0.07)');
+    grad.addColorStop(1, 'rgba(0,255,80,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
     // Grid circles
-    [0.33, 0.66, 1].forEach(f => {
+    [0.33, 0.66, 1].forEach((f, i) => {
       ctx.beginPath(); ctx.arc(cx, cy, r*f, 0, 2*Math.PI);
-      ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.strokeStyle = i===2 ? 'rgba(0,255,80,0.35)' : 'rgba(0,255,80,0.12)';
+      ctx.lineWidth = i===2 ? 1.5 : 1; ctx.stroke();
     });
+
     // Cross hairs
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0,255,80,0.12)'; ctx.lineWidth = 1;
+    ctx.setLineDash([4,6]);
     ctx.beginPath(); ctx.moveTo(cx-r, cy); ctx.lineTo(cx+r, cy); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(cx, cy-r); ctx.lineTo(cx, cy+r); ctx.stroke();
-    // Range label
-    ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(range + 'm', cx + r*0.66 + 6, cy - 4);
+    ctx.setLineDash([]);
 
-    // My position dot
-    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 2*Math.PI);
-    ctx.fillStyle = '#E24B4A'; ctx.fill();
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore(); // end clip
 
-    if (!myLatLng) return;
+    // North label
+    ctx.fillStyle = 'rgba(0,255,80,0.5)'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('N', cx, cy - r - 3);
 
-    // Draw locations
-    const active = allLocations.filter(l => l.active !== false && l.lat && l.lng);
+    // Range rings labels
+    ctx.fillStyle = 'rgba(0,255,80,0.35)'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+    ctx.fillText(Math.round(range/3)+'m', cx+4, cy - r*0.33 - 2);
+    ctx.fillText(Math.round(range*2/3)+'m', cx+4, cy - r*0.66 - 2);
+
+    // Determine center point for radar
+    // If we have GPS use it, otherwise center on midpoint of all locations
+    let originLat, originLng, hasGPS = false;
+    if (myLatLng) {
+      originLat = myLatLng.lat; originLng = myLatLng.lng; hasGPS = true;
+    } else if (active.length > 0) {
+      originLat = active.reduce((s,l)=>s+l.lat,0)/active.length;
+      originLng = active.reduce((s,l)=>s+l.lng,0)/active.length;
+    } else {
+      // No data at all — show empty radar
+      const legendEl = document.getElementById(legendId);
+      if (legendEl) legendEl.innerHTML = '<div style="color:var(--muted); font-size:13px; text-align:center; padding:8px;">No locations added yet</div>';
+      return;
+    }
+
+    // Draw locations (north always up)
     const legendItems = [];
     active.forEach(loc => {
-      const { dist, bearing } = gpsToMetres(myLatLng.lat, myLatLng.lng, loc.lat, loc.lng);
-      const scale = Math.min(dist / range, 1);
+      const { dist, bearing } = gpsToMetres(originLat, originLng, loc.lat, loc.lng);
+      const scale = Math.min(dist / range, 0.97);
+      // bearing: 0=north(up), positive=clockwise
       const px = cx + Math.sin(bearing) * r * scale;
       const py = cy - Math.cos(bearing) * r * scale;
+
+      // Glow
+      const glow = ctx.createRadialGradient(px, py, 0, px, py, 12);
+      glow.addColorStop(0, 'rgba(55,138,221,0.4)');
+      glow.addColorStop(1, 'rgba(55,138,221,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath(); ctx.arc(px, py, 12, 0, 2*Math.PI); ctx.fill();
+
       // Dot
       ctx.beginPath(); ctx.arc(px, py, 5, 0, 2*Math.PI);
       ctx.fillStyle = '#378ADD'; ctx.fill();
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+
       // Name label
       ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(loc.name, px, py - 9);
-      legendItems.push({ name: loc.name, dist: Math.round(dist) });
+      ctx.strokeStyle = '#060d14'; ctx.lineWidth = 3;
+      ctx.strokeText(loc.name, px, py - 10);
+      ctx.fillText(loc.name, px, py - 10);
+
+      if (hasGPS) legendItems.push({ name: loc.name, dist: Math.round(dist) });
     });
+
+    // My position dot (only if GPS)
+    if (hasGPS) {
+      // Pulse ring
+      ctx.beginPath(); ctx.arc(cx, cy, 10, 0, 2*Math.PI);
+      ctx.strokeStyle = 'rgba(226,75,74,0.4)'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 2*Math.PI);
+      ctx.fillStyle = '#E24B4A'; ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+
+    // Status text
+    const statusEl = document.getElementById(canvasId === 'radar-canvas' ? 'map-gps-status' : 'imp-map-gps-status');
+    if (statusEl) statusEl.textContent = hasGPS ? 'GPS active — north up' : 'No GPS — showing all locations';
 
     // Legend
     const legendEl = document.getElementById(legendId);
     if (legendEl) {
       legendEl.innerHTML = legendItems.length
-        ? legendItems.map(l => `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:0.5px solid var(--border);font-size:13px;"><span>📍 ${l.name}</span><span style="color:var(--muted);">${l.dist}m</span></div>`).join('')
-        : '<div style="color:var(--muted); font-size:13px;">No locations set yet</div>';
+        ? legendItems.sort((a,b)=>a.dist-b.dist).map(l => `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:0.5px solid var(--border);font-size:13px;"><span style="color:#378ADD;">●</span> <span style="flex:1; margin-left:6px;">${l.name}</span><span style="color:var(--muted);">${l.dist}m</span></div>`).join('')
+        : active.length
+        ? active.map(l => `<div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-size:13px;color:#378ADD;">● ${l.name}</div>`).join('')
+        : '<div style="color:var(--muted); font-size:13px; text-align:center; padding:8px;">No locations added yet</div>';
     }
   }
 
-  window.centerRadar = function() {
-    radarCenter = null;
-    drawRadar('radar-canvas', 'radar-legend');
-    drawRadar('imp-radar-canvas', 'imp-radar-legend');
-  }
+
 
   window.switchTab = function(tab) {
     ['tasks','map','players','vote'].forEach(t => {
@@ -2944,10 +3006,7 @@
       renderVoting();
     }
     if (tab==='map') {
-      setTimeout(async () => {
-        await loadLocations();
-        drawRadar('radar-canvas', 'radar-legend');
-      }, 100);
+      setTimeout(() => { drawRadar('radar-canvas', 'radar-legend'); }, 100);
     }
   }
 
@@ -2964,10 +3023,7 @@
     }
     if (tab==='tasks') renderImpTasks();
     if (tab==='map') {
-      setTimeout(async () => {
-        await loadLocations();
-        drawRadar('imp-radar-canvas', 'imp-radar-legend');
-      }, 100);
+      setTimeout(() => { drawRadar('imp-radar-canvas', 'imp-radar-legend'); }, 100);
     }
   }
 
@@ -3100,8 +3156,14 @@
   }
 
   window.adminGoBack = function() {
-    if (adminPreviousScreen) showScreen(adminPreviousScreen);
-    else showScreen('screen-lobby');
+    const target = adminPreviousScreen || 'screen-lobby';
+    showScreen(target);
+    // Re-trigger appropriate listener
+    if (target === 'screen-lobby') {
+      // nothing needed, lobby listener is active
+    } else if (target === 'screen-main' || target === 'screen-impostor') {
+      if (gameState) renderGame();
+    }
   }
 
   window.saveLiveSelect = async function(key, inputId) {
@@ -3540,6 +3602,12 @@
     }
     await update(ref(db), updates);
     showToast('Game reset');
+    // Force local transition to lobby
+    roleRevealed = false;
+    currentPhase = 'lobby';
+    stopSiren();
+    stopAmbulance();
+    showScreen('screen-lobby');
   }
 
   // QR scan handler
