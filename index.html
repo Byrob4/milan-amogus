@@ -952,7 +952,11 @@
     }
     await set(ref(db, GAME_REF + '/players/' + myPlayerId), {
       name, alive: true, tasksCompleted: 0, joinedAt: Date.now(),
-      color: PLAYER_COLORS[Math.floor(Math.random()*PLAYER_COLORS.length)]
+      color: (() => {
+        const usedColors = Object.values(gameState?.players || {}).map(p => p.color).filter(Boolean);
+        const available = PLAYER_COLORS.filter(c => !usedColors.includes(c));
+        return available.length ? available[0] : PLAYER_COLORS[Object.keys(gameState?.players||{}).length % PLAYER_COLORS.length];
+      })()
     });
     await set(ref(db, GAME_REF + '/state'), 'lobby');
     showScreen('screen-lobby');
@@ -1278,6 +1282,7 @@
     const isPaused = !!gameState.paused;
     if (myRole === 'crewmate') {
       document.getElementById('dead-notice').style.display = (!me.alive && !me.pendingKill) ? 'block' : 'none';
+      myShieldUntil = me.shieldUntil || 0;
       // Shield indicator
       let shieldEl = document.getElementById('shield-indicator');
       const shieldUntil = me.shieldUntil || 0;
@@ -1486,17 +1491,13 @@
   }
 
   function refreshShieldIndicator() {
-    const me = gameState?.players?.[myPlayerId];
-    if (!me) return;
     const shieldEl = document.getElementById('shield-indicator');
-    const shieldUntil = me.shieldUntil || 0;
-    if (Date.now() < shieldUntil) {
-      if (shieldEl) {
-        const rem = Math.ceil((shieldUntil - Date.now())/1000);
-        shieldEl.textContent = '🛡 Shielded — ' + rem + 's';
-        shieldEl.style.display = 'block';
-      }
-    } else if (shieldEl) {
+    if (!shieldEl) return;
+    if (Date.now() < myShieldUntil) {
+      const rem = Math.ceil((myShieldUntil - Date.now())/1000);
+      shieldEl.textContent = '🛡 Shielded — ' + rem + 's';
+      shieldEl.style.display = 'block';
+    } else {
       shieldEl.style.display = 'none';
     }
   }
@@ -2846,6 +2847,7 @@
   const POSITIONS_REF = 'radarPositions';
   const HACKING_REF = 'radarActive';
   let hackingActive = false;
+  let myShieldUntil = 0;
   let hackingEndTime = 0;
   let hackingTracked = [];
   let hackingDynamicRadius = null;
@@ -3107,23 +3109,23 @@
       const px = cx + Math.sin(bearing) * r * scale;
       const py = cy - Math.cos(bearing) * r * scale;
 
-      // Glow
-      const glow = ctx.createRadialGradient(px, py, 0, px, py, 12);
-      glow.addColorStop(0, 'rgba(55,138,221,0.4)');
-      glow.addColorStop(1, 'rgba(55,138,221,0)');
-      ctx.fillStyle = glow;
-      ctx.beginPath(); ctx.arc(px, py, 12, 0, 2*Math.PI); ctx.fill();
-
-      // Dot
-      ctx.beginPath(); ctx.arc(px, py, 5, 0, 2*Math.PI);
-      ctx.fillStyle = '#378ADD'; ctx.fill();
+      // Pin shape for location
+      const pinColor = '#E0972A';
+      // Pin circle (head)
+      ctx.beginPath(); ctx.arc(px, py - 10, 7, 0, 2*Math.PI);
+      ctx.fillStyle = pinColor; ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
-
-      // Name label
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+      // Pin stem
+      ctx.beginPath(); ctx.moveTo(px, py - 3); ctx.lineTo(px, py + 4);
+      ctx.strokeStyle = pinColor; ctx.lineWidth = 2.5; ctx.stroke();
+      // Inner dot
+      ctx.beginPath(); ctx.arc(px, py - 10, 3, 0, 2*Math.PI);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      // Name label (below pin)
+      ctx.fillStyle = pinColor; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
       ctx.strokeStyle = '#060d14'; ctx.lineWidth = 3;
-      ctx.strokeText(loc.name, px, py - 10);
-      ctx.fillText(loc.name, px, py - 10);
+      ctx.strokeText(loc.name, px, py + 16);
+      ctx.fillText(loc.name, px, py + 16);
 
       if (hasGPS) legendItems.push({ name: loc.name, dist: Math.round(dist) });
     });
@@ -3143,23 +3145,34 @@
         glow.addColorStop(1, 'rgba(155,89,255,0)');
         ctx.fillStyle = glow;
         ctx.beginPath(); ctx.arc(px, py, 14, 0, 2*Math.PI); ctx.fill();
-        ctx.beginPath(); ctx.arc(px, py, 6, 0, 2*Math.PI);
+        // Player circle
+        ctx.beginPath(); ctx.arc(px, py, 8, 0, 2*Math.PI);
         ctx.fillStyle = p.color || '#9B59FF'; ctx.fill();
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+        // Name
         ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
         ctx.strokeStyle = '#060d14'; ctx.lineWidth = 3;
-        ctx.strokeText(p.name, px, py - 10);
-        ctx.fillText(p.name, px, py - 10);
+        ctx.strokeText(p.name, px, py - 14);
+        ctx.fillText(p.name, px, py - 14);
       });
     }
 
     // My position dot (only if GPS)
     if (hasGPS) {
-      ctx.beginPath(); ctx.arc(cx, cy, 10, 0, 2*Math.PI);
-      ctx.strokeStyle = 'rgba(226,75,74,0.4)'; ctx.lineWidth = 2; ctx.stroke();
-      ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 2*Math.PI);
-      ctx.fillStyle = '#E24B4A'; ctx.fill();
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+      const myP = gameState?.players?.[myPlayerId];
+      const myDotColor = myP?.color || '#E24B4A';
+      // Outer pulse ring
+      ctx.beginPath(); ctx.arc(cx, cy, 13, 0, 2*Math.PI);
+      ctx.strokeStyle = myDotColor + '55'; ctx.lineWidth = 2; ctx.stroke();
+      // Main circle
+      ctx.beginPath(); ctx.arc(cx, cy, 8, 0, 2*Math.PI);
+      ctx.fillStyle = myDotColor; ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+      // My name
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+      ctx.strokeStyle = '#060d14'; ctx.lineWidth = 3;
+      ctx.strokeText(myName || 'You', cx, cy - 15);
+      ctx.fillText(myName || 'You', cx, cy - 15);
     }
 
     // Status text
