@@ -350,7 +350,6 @@
   <div class="tab-bar">
     <div class="tab active" onclick="switchAdminTab('controls')">Controls</div>
     <div class="tab" onclick="switchAdminTab('missions')">Missions</div>
-    <div class="tab" onclick="switchAdminTab('locations')">Locations</div>
   </div>
 
   <!-- CONTROLS TAB -->
@@ -469,14 +468,6 @@
     <div id="admin-float-missions-list"></div>
   </div>
 
-  <!-- LOCATIONS TAB -->
-  <div id="admin-tab-locations" style="display:none; overflow-y:auto;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-      <div class="label" style="margin:0">Locations</div>
-      <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddLocation()">+ Add</button>
-    </div>
-    <div id="admin-locations-list"></div>
-  </div>
 </div>
 
 <!-- OVERLAY: Add location -->
@@ -512,7 +503,7 @@
   <div class="overlay-box">
     <h3 style="margin-bottom:16px;">Add mission</h3>
     <div class="label">Location</div>
-    <input type="text" id="mission-location" placeholder="e.g. Park" />
+    <select id="mission-location"><option value="">— Select location —</option></select>
     <div class="spacer"></div>
     <div class="label">Description</div>
     <input type="text" id="mission-desc" placeholder="e.g. Find a red bench and photograph it" />
@@ -784,6 +775,10 @@
   let allQuizzes = {};
   const LOCATIONS_REF = 'locations';
   let allLocations = [];
+  async function loadLocations() {
+    const snap = await get(ref(db, LOCATIONS_REF));
+    allLocations = snap.exists() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : [];
+  }
 
   let myPlayerId = null;
   let isAdmin = false;
@@ -3187,14 +3182,13 @@
   }
 
   window.switchAdminTab = function(tab) {
-    ['controls','missions','locations'].forEach(t => {
+    ['controls','missions'].forEach(t => {
       const el = document.getElementById('admin-tab-'+t);
       if (el) el.style.display = t===tab ? 'block' : 'none';
       const btn = document.querySelector(`[onclick="switchAdminTab('${t}')"]`);
       if (btn) btn.classList.toggle('active', t===tab);
     });
     if (tab==='missions') loadAdminFloatMissions();
-    if (tab==='locations') loadAdminLocations();
     if (tab==='controls') loadAdminGameState();
   }
 
@@ -3436,8 +3430,11 @@
     showToast('Settings saved');
   }
 
-  window.showAddMission = function() {
-    document.getElementById('mission-location').value = '';
+  window.showAddMission = async function() {
+    await loadLocations();
+    const sel = document.getElementById('mission-location');
+    sel.innerHTML = '<option value="">— Select location —</option>' +
+      allLocations.filter(l => l.active !== false).map(l => `<option value="${l.name}">${l.name}</option>`).join('');
     document.getElementById('mission-desc').value = '';
     document.getElementById('mission-proof').value = 'photo';
     document.getElementById('mission-category').value = 'exploration';
