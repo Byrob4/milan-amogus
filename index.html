@@ -429,11 +429,27 @@
       <option value="code">Secret code</option>
       <option value="audio">Audio recording</option>
       <option value="none">No proof</option>
+      <option value="quiz">Quiz</option>
     </select>
     <div id="mission-code-wrapper" style="display:none">
       <div class="spacer"></div>
       <div class="label">Secret code (4 digits)</div>
       <input type="text" id="mission-code" placeholder="e.g. 4821" maxlength="4" />
+    </div>
+    <div id="mission-quiz-wrapper" style="display:none">
+      <div class="spacer"></div>
+      <div class="label">Quiz category</div>
+      <select id="mission-quiz-category">
+        <option value="general">General culture</option>
+        <option value="math">Math</option>
+        <option value="geography">Geography</option>
+        <option value="history">History</option>
+        <option value="logic">Logic</option>
+        <option value="milan">Milan</option>
+        <option value="italy_en">English grammar (C1)</option>
+        <option value="italy_it">Italian grammar (B1)</option>
+        <option value="american">Most Difficult American Test</option>
+      </select>
     </div>
     <div class="spacer"></div>
     <button class="btn btn-primary" onclick="saveMission()">Save mission</button>
@@ -541,6 +557,30 @@
       <div style="font-size:48px; margin:16px 0;">✓</div>
       <div id="coop-done-msg" style="font-size:15px; font-weight:600; margin-bottom:16px;"></div>
       <button class="btn btn-primary" onclick="closeOverlay('overlay-coop')">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- OVERLAY: Quiz -->
+<div class="overlay" id="overlay-quiz">
+  <div class="overlay-box">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <div>
+        <div class="label" style="margin:0" id="quiz-category-label"></div>
+        <div style="font-size:13px; color:var(--muted);">Question <span id="quiz-q-num">1</span>/5</div>
+      </div>
+      <div style="font-size:28px; font-weight:700;" id="quiz-timer-display" style="color:var(--text);">15</div>
+    </div>
+    <div style="height:4px; background:var(--border); border-radius:2px; margin-bottom:16px;">
+      <div id="quiz-timer-bar" style="height:100%; background:var(--crew); border-radius:2px; transition:width 0.5s linear; width:100%;"></div>
+    </div>
+    <div style="font-size:15px; font-weight:500; margin-bottom:16px; line-height:1.5;" id="quiz-question"></div>
+    <div id="quiz-answers" style="display:flex; flex-direction:column; gap:8px;"></div>
+    <div id="quiz-feedback" style="display:none; text-align:center; padding:16px 0;">
+      <div style="font-size:36px; margin-bottom:8px;" id="quiz-feedback-icon"></div>
+      <div style="font-size:15px; font-weight:600;" id="quiz-feedback-msg"></div>
+      <div style="font-size:13px; color:var(--muted); margin-top:4px;" id="quiz-feedback-sub"></div>
+      <button class="btn btn-primary" style="margin-top:16px;" id="quiz-next-btn" onclick="quizNext()">Next</button>
     </div>
   </div>
 </div>
@@ -722,6 +762,8 @@
   const GAME_REF = 'game';
   const SETTINGS_REF = 'settings';
   const MISSIONS_REF = 'missions';
+  const QUIZZES_REF = 'quizzes';
+  let allQuizzes = {};
 
   let myPlayerId = null;
   let isAdmin = false;
@@ -794,6 +836,11 @@
     if (snap.exists()) settings = { ...settings, ...snap.val() };
   }
 
+  async function loadQuizzes() {
+    const snap = await get(ref(db, QUIZZES_REF));
+    if (snap.exists()) allQuizzes = snap.val();
+  }
+
   async function loadMissions() {
     const snap = await get(ref(db, MISSIONS_REF));
     if (snap.exists()) {
@@ -860,6 +907,7 @@
     roleRevealed = false;
     await loadSettings();
     await loadMissions();
+    await loadQuizzes();
     const snap = await get(ref(db, GAME_REF + '/state'));
     const state = snap.exists() ? snap.val() : 'lobby';
     if (state === 'playing') {
@@ -1303,9 +1351,12 @@
           <div style="flex:1;">
             <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location || ''} ${m.category ? '· '+m.category : ''}</div>
             <div style="font-weight:500;">${m.description}</div>
-            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.category==='coop' ? '👥 Co-op mission' : m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : m.proofType === 'none' ? '✔ No proof' : '🔢 Secret code required'}</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.category==='coop' ? '👥 Co-op mission' : m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : m.proofType === 'none' ? '✔ No proof' : m.proofType === 'quiz' ? '🧠 Quiz' : '🔢 Secret code required'}</div>
           </div>
-          <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;"><button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="${m.category==='coop'?`openCoop(${i})`:`openProof(${i})`}">${m.category==='coop'?'👥 Co-op':'Complete'}</button><button class="btn btn-ghost" style="width:auto; padding:5px 12px; font-size:11px;" onclick="rerollTask(${i})">🎲 Reroll</button></div>
+          <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;">
+            <button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="${m.category==='coop'?`openCoop(${i})`:(m.proofType==='quiz'?`openQuiz(${i})`:`openProof(${i})`)}">${m.category==='coop'?'👥 Co-op':m.proofType==='quiz'?'🧠 Quiz':'Complete'}</button>
+            <button class="btn btn-ghost" style="width:auto; padding:5px 12px; font-size:11px;" onclick="rerollTask(${i})">🎲 Reroll</button>
+          </div>
         </div>
       </div>
     `).join('');
@@ -2059,10 +2110,136 @@
   }
 
   // ============ CO-OP SYSTEM ============
+  // Quiz state
+  let quizMissionIdx = null;
+  let quizMissionKey = null;
+  let quizQuestions = [];
+  let quizCurrentQ = 0;
+  let quizScore = 0;
+  let quizTimerInterval = null;
+  let quizTimeLeft = 15;
+  let quizAnswered = false;
+
   let coopMissionIdx = null;
   let coopSessionId = null;
   let coopTimerInterval = null;
   let coopListener = null;
+
+  window.openQuiz = async function(missionIdx) {
+    await loadQuizzes();
+    const me = gameState.players[myPlayerId];
+    const missions = Object.entries(me.missions || {});
+    const [mkey, mission] = missions[missionIdx];
+    const cat = mission.quizCategory || 'general';
+    const pool = (allQuizzes[cat] || []);
+    if (!pool.length) { showToast('Quiz data not loaded — ask admin to import quizzes'); return; }
+    quizMissionIdx = missionIdx;
+    quizMissionKey = mkey;
+    quizQuestions = shuffle(pool).slice(0, 5);
+    quizCurrentQ = 0;
+    quizScore = 0;
+    const catNames = {general:'General',math:'Math',geography:'Geography',history:'History',logic:'Logic',milan:'Milan',italy_en:'English C1',italy_it:'Italian B1',american:'Most Difficult American Test'};
+    document.getElementById('quiz-category-label').textContent = catNames[cat] || cat;
+    document.getElementById('quiz-feedback').style.display = 'none';
+    document.getElementById('overlay-quiz').classList.add('active');
+    showQuizQuestion();
+  }
+
+  function showQuizQuestion() {
+    const q = quizQuestions[quizCurrentQ];
+    document.getElementById('quiz-q-num').textContent = quizCurrentQ + 1;
+    document.getElementById('quiz-question').textContent = q.q;
+    document.getElementById('quiz-feedback').style.display = 'none';
+    const answersEl = document.getElementById('quiz-answers');
+    answersEl.style.display = 'flex';
+    answersEl.innerHTML = q.a.map((opt, i) => `
+      <button onclick="quizAnswer(${i})" style="background:var(--bg3); border:0.5px solid var(--border2); border-radius:var(--radius-sm); padding:12px 14px; color:var(--text); font-size:14px; text-align:left; cursor:pointer; transition:background 0.15s;">${opt}</button>
+    `).join('');
+    quizAnswered = false;
+    quizTimeLeft = 15;
+    document.getElementById('quiz-timer-display').textContent = quizTimeLeft;
+    document.getElementById('quiz-timer-bar').style.width = '100%';
+    document.getElementById('quiz-timer-bar').style.background = 'var(--crew)';
+    if (quizTimerInterval) clearInterval(quizTimerInterval);
+    quizTimerInterval = setInterval(() => {
+      quizTimeLeft--;
+      document.getElementById('quiz-timer-display').textContent = quizTimeLeft;
+      const pct = (quizTimeLeft / 15 * 100) + '%';
+      document.getElementById('quiz-timer-bar').style.width = pct;
+      if (quizTimeLeft <= 5) document.getElementById('quiz-timer-bar').style.background = 'var(--imp)';
+      if (quizTimeLeft <= 0) {
+        clearInterval(quizTimerInterval);
+        if (!quizAnswered) quizAnswer(-1); // time up = wrong
+      }
+    }, 1000);
+  }
+
+  window.quizAnswer = function(idx) {
+    if (quizAnswered) return;
+    quizAnswered = true;
+    clearInterval(quizTimerInterval);
+    const q = quizQuestions[quizCurrentQ];
+    const correct = idx === q.c;
+    if (correct) quizScore++;
+    // Highlight answer buttons
+    const btns = document.getElementById('quiz-answers').querySelectorAll('button');
+    btns.forEach((btn, i) => {
+      btn.disabled = true;
+      if (i === q.c) btn.style.background = 'rgba(58,158,106,0.3)';
+      else if (i === idx && !correct) btn.style.background = 'rgba(226,75,74,0.3)';
+    });
+    // Show feedback briefly then move on
+    setTimeout(() => {
+      quizCurrentQ++;
+      if (quizCurrentQ < 5) {
+        showQuizQuestion();
+      } else {
+        finishQuiz();
+      }
+    }, 800);
+  }
+
+  window.quizNext = function() {
+    closeOverlay('overlay-quiz');
+  }
+
+  async function finishQuiz() {
+    clearInterval(quizTimerInterval);
+    document.getElementById('quiz-answers').style.display = 'none';
+    document.getElementById('quiz-timer-display').textContent = '';
+    document.getElementById('quiz-timer-bar').style.width = '0';
+    const passed = quizScore >= 4;
+    const feedbackEl = document.getElementById('quiz-feedback');
+    feedbackEl.style.display = 'block';
+    document.getElementById('quiz-feedback-icon').textContent = passed ? '✅' : '❌';
+    document.getElementById('quiz-feedback-msg').textContent = passed ? 'Passed! ' + quizScore + '/5' : 'Failed — ' + quizScore + '/5';
+    if (passed) {
+      document.getElementById('quiz-feedback-sub').textContent = 'Task complete!';
+      document.getElementById('quiz-next-btn').textContent = 'Done';
+      await update(ref(db), { [GAME_REF+'/players/'+myPlayerId+'/missions/'+quizMissionKey+'/done']: true });
+      checkWinConditions();
+    } else {
+      // Increment fail count
+      const me = gameState.players[myPlayerId];
+      const missions = Object.entries(me.missions || {});
+      const [, mission] = missions[quizMissionIdx] || [null, {}];
+      const fails = (mission.quizFails || 0) + 1;
+      if (fails >= 3) {
+        // 3rd fail — discard for this player only
+        document.getElementById('quiz-feedback-sub').textContent = '3 failures — this task has been discarded.';
+        document.getElementById('quiz-next-btn').textContent = 'Close';
+        await remove(ref(db, GAME_REF+'/players/'+myPlayerId+'/missions/'+quizMissionKey));
+      } else {
+        document.getElementById('quiz-feedback-sub').textContent = 'Need 4/5. ' + (3-fails) + ' attempt' + (3-fails!==1?'s':'') + ' left.';
+        document.getElementById('quiz-next-btn').textContent = 'Try again';
+        await update(ref(db), { [GAME_REF+'/players/'+myPlayerId+'/missions/'+quizMissionKey+'/quizFails']: fails });
+        document.getElementById('quiz-next-btn').onclick = () => {
+          closeOverlay('overlay-quiz');
+          setTimeout(() => openQuiz(quizMissionIdx), 300);
+        };
+      }
+    }
+  }
 
   window.openCoopJoin = function() {
     coopMissionIdx = null; // joining as a favor, no own mission
@@ -2607,8 +2784,10 @@
     await loadMissions();
     const el = document.getElementById('admin-float-missions-list');
     if (!el) return;
-    let html = `<button class="btn btn-ghost" style="margin-bottom:12px; font-size:13px;" onclick="document.getElementById('import-file-input').click()">⬆ Import missions (JSON)</button>
-      <input type="file" accept="application/json,.json" id="import-file-input" style="display:none" onchange="importMissions(event)" />`;
+    let html = `<button class="btn btn-ghost" style="margin-bottom:8px; font-size:13px;" onclick="document.getElementById('import-file-input').click()">⬆ Import missions (JSON)</button>
+      <input type="file" accept="application/json,.json" id="import-file-input" style="display:none" onchange="importMissions(event)" />
+      <button class="btn btn-ghost" style="margin-bottom:12px; font-size:13px;" onclick="document.getElementById('import-quiz-input').click()">🧠 Import quizzes (JSON)</button>
+      <input type="file" accept="application/json,.json" id="import-quiz-input" style="display:none" onchange="importQuizzes(event)" />`;
     if (!allMissions.length) {
       el.innerHTML = html + '<div style="color:var(--muted); font-size:13px;">No missions yet.</div>';
       return;
@@ -2632,6 +2811,25 @@
       </div>`;
     }).join('');
     el.innerHTML = html;
+  }
+
+  window.importQuizzes = async function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const cats = parsed.categories || parsed;
+      let total = 0;
+      for (const [cat, questions] of Object.entries(cats)) {
+        await set(ref(db, QUIZZES_REF+'/'+cat), questions);
+        total += questions.length;
+      }
+      allQuizzes = cats;
+      showToast(total + ' quiz questions imported');
+    } catch(err) {
+      showToast('Invalid JSON file');
+    }
   }
 
   window.toggleMissionActive = async function(id, currentlyActive) {
@@ -2783,6 +2981,7 @@
 
   document.getElementById('mission-proof').addEventListener('change', function() {
     document.getElementById('mission-code-wrapper').style.display = this.value==='code' ? 'block' : 'none';
+    document.getElementById('mission-quiz-wrapper').style.display = this.value==='quiz' ? 'block' : 'none';
   });
 
   window.saveMission = async function() {
@@ -2793,7 +2992,9 @@
     const code = document.getElementById('mission-code').value.trim();
     if (!description) { showToast('Enter a description'); return; }
     if (proofType==='code' && !code) { showToast('Enter secret code'); return; }
+    const quizCategory = document.getElementById('mission-quiz-category')?.value || 'general';
     const mission = { location, description, proofType, category, active: true };
+    if (proofType === 'quiz') mission.quizCategory = quizCategory;
     if (proofType==='code') mission.code = code;
     await push(ref(db, MISSIONS_REF), mission);
     closeOverlay('overlay-add-mission');
