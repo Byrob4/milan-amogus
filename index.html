@@ -229,7 +229,7 @@
   </div>
   <div id="tab-map" style="display:none">
     <div style="text-align:center; position:relative; display:inline-block; width:100%;">
-      <canvas id="radar-canvas" width="320" height="320" style="border-radius:50%; display:block; margin:0 auto;"></canvas>
+      <canvas id="radar-canvas" style="border-radius:50%; display:block; margin:0 auto; max-width:100%;"></canvas>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-top:8px; text-align:center;" id="map-gps-status">Acquiring GPS...</div>
     <div id="radar-legend" style="margin-top:12px; font-size:13px;"></div>
@@ -276,7 +276,7 @@
   </div>
   <div id="imp-tab-map" style="display:none">
     <div style="text-align:center; position:relative; display:inline-block; width:100%;">
-      <canvas id="imp-radar-canvas" width="320" height="320" style="border-radius:50%; display:block; margin:0 auto;"></canvas>
+      <canvas id="imp-radar-canvas" style="border-radius:50%; display:block; margin:0 auto; max-width:100%;"></canvas>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-top:8px; text-align:center;" id="imp-map-gps-status">Acquiring GPS...</div>
     <div id="imp-radar-legend" style="margin-top:12px; font-size:13px;"></div>
@@ -2874,6 +2874,10 @@
 
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
+    // Set canvas size based on screen width
+    const size = Math.min(window.innerWidth - 40, 320);
+    canvas.width = size;
+    canvas.height = size;
     const ctx = canvas.getContext('2d');
     const W = canvas.width, H = canvas.height;
     const cx = W/2, cy = H/2, r = W/2 - 14;
