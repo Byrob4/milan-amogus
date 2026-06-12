@@ -518,11 +518,15 @@
 
   <!-- MISSIONS TAB -->
   <div id="admin-tab-missions" style="display:none; overflow-y:auto;">
-    <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+    <div style="display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
       <button class="btn btn-ghost" style="flex:1; font-size:13px;" onclick="document.getElementById('import-file-input').click()">⬆ Import missions</button>
       <input type="file" accept="application/json,.json" id="import-file-input" style="display:none" onchange="importMissions(event)" />
       <button class="btn btn-ghost" style="flex:1; font-size:13px;" onclick="document.getElementById('import-quiz-input').click()">🧠 Import quizzes</button>
       <input type="file" accept="application/json,.json" id="import-quiz-input" style="display:none" onchange="importQuizzes(event)" />
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+      <button class="btn btn-ghost" style="flex:1; font-size:13px;" onclick="exportMissions()">⬇ Export missions</button>
+      <button class="btn btn-ghost" style="flex:1; font-size:13px;" onclick="exportLocations()">⬇ Export locations</button>
     </div>
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <div class="label" style="margin:0">Missions</div>
@@ -4037,6 +4041,32 @@
   window.toggleMissionActive = async function(id, currentlyActive) {
     await update(ref(db, MISSIONS_REF+'/'+id), { active: !currentlyActive });
     loadAdminFloatMissions();
+  }
+
+  window.exportMissions = async function() {
+    const snap = await get(ref(db, MISSIONS_REF));
+    const missions = snap.exists() ? Object.values(snap.val()) : [];
+    if (!missions.length) { showToast('No missions to export'); return; }
+    const json = JSON.stringify(missions, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'missions.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  window.exportLocations = async function() {
+    const snap = await get(ref(db, LOCATIONS_REF));
+    const locations = snap.exists() ? Object.values(snap.val()) : [];
+    if (!locations.length) { showToast('No locations to export'); return; }
+    const json = JSON.stringify(locations, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'locations.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   window.importMissions = async function(e) {
