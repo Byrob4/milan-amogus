@@ -769,8 +769,7 @@
     <div class="label">Mark who arrived at <span id="breach-resolve-loc" style="color:var(--text);"></span></div>
     <div id="breach-resolve-list" style="margin-bottom:16px;"></div>
     <button class="btn btn-success" onclick="resolveBreachSuccess()" style="margin-bottom:8px;">✓ All arrived — cancel hacking</button>
-    <button class="btn btn-danger" onclick="resolveBreachFail()" style="margin-bottom:8px;">✗ Time's up — activate hacking</button>
-    <button class="btn btn-ghost" onclick="closeOverlay('overlay-breach-resolve')">Close</button>
+    <button class="btn btn-danger" onclick="resolveBreachFail()">✗ Time's up — activate hacking</button>
   </div>
 </div>
 
@@ -1438,11 +1437,11 @@
       if (commsInline) commsInline.style.display = commsActive ? 'block' : 'none';
     }
 
-    // BREACH: show banner, open admin resolve popup when timer expires
     const breachBanner = document.getElementById('sabotage-breach-banner');
     const breachUntil = gameState.sabotageBreachUntil || 0;
-    const breachActive = sType === 'breach' && now < breachUntil && !gameState.sabotageBreachResolved;
-    const breachExpiredUnresolved = sType === 'breach' && now >= breachUntil && !gameState.sabotageBreachResolved;
+    const breachResolved = !!gameState.sabotageBreachResolved;
+    const breachActive = sType === 'breach' && now < breachUntil && !breachResolved;
+    const breachExpiredUnresolved = sType === 'breach' && now >= breachUntil && !breachResolved;
     if (breachBanner) breachBanner.style.display = (breachActive || breachExpiredUnresolved) ? 'block' : 'none';
     if (breachActive) {
       const locLbl = document.getElementById('breach-banner-loc');
@@ -1454,7 +1453,7 @@
       const locLbl2 = document.getElementById('breach-banner-loc');
       if (locLbl2) locLbl2.textContent = gameState.sabotageBreachLocation || '—';
       if (myRole === 'impostor') activateBreachHacking();
-      if (isAdmin) openBreachResolve();
+      if (isAdmin && !_breachResolveOpen) openBreachResolve();
     }
 
     if (myRole === 'crewmate') checkPendingKills();
@@ -1518,11 +1517,10 @@
   }
 
   window.resolveBreachFail = async function() {
-    await update(ref(db), { [GAME_REF+'/sabotageBreachResolved']: false });
+    await update(ref(db), { [GAME_REF+'/sabotageBreachResolved']: true });
     _breachResolveOpen = false;
     closeOverlay('overlay-breach-resolve');
-    // Hacking will be activated by impostor client via activateBreachHacking
-    showToast('✗ Breach failed — hacking will activate');
+    showToast('✗ Breach failed — hacking activated');
   }
 
   // Realtime settings listener so label/countdown updates propagate to all clients without rejoin
@@ -1581,8 +1579,9 @@
 
     // Breach banner tick
     const breachUntil = gs.sabotageBreachUntil || 0;
-    const breachActive2 = sType === 'breach' && now < breachUntil && !gs.sabotageBreachResolved;
-    const breachExpired2 = sType === 'breach' && now >= breachUntil && !gs.sabotageBreachResolved;
+    const breachResolved2 = !!gs.sabotageBreachResolved;
+    const breachActive2 = sType === 'breach' && now < breachUntil && !breachResolved2;
+    const breachExpired2 = sType === 'breach' && now >= breachUntil && !breachResolved2;
     const breachBanner2 = document.getElementById('sabotage-breach-banner');
     if (breachBanner2) breachBanner2.style.display = (breachActive2 || breachExpired2) ? 'block' : 'none';
     if (breachActive2) {
@@ -1597,7 +1596,7 @@
       const lbl = document.getElementById('breach-sabotage-timer-label');
       if (lbl) lbl.textContent = '⚠ time up';
       if (myRole === 'impostor') activateBreachHacking();
-      if (isAdmin) openBreachResolve();
+      if (isAdmin && !_breachResolveOpen) openBreachResolve();
     }
   }, 1000);
 
