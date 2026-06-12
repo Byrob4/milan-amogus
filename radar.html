@@ -87,6 +87,12 @@
     <input type="text" id="input-loc-name" placeholder="e.g. Park" style="margin-bottom:12px;" />
     <div id="admin-locations-list"></div>
     <div class="spacer"></div>
+    <div class="label">Radar radius (meters)</div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <input type="number" id="input-radar-radius" placeholder="200" min="50" max="2000" style="flex:1;" />
+      <button class="btn btn-ghost" style="width:auto; padding:10px 16px;" onclick="saveRadarRadius()">Set</button>
+    </div>
+    <div class="spacer"></div>
     <button class="btn btn-ghost" onclick="exitAdmin()">← Back</button>
   </div>
 </div>
@@ -164,7 +170,7 @@
   let myLng = null;
   let gpsWatchId = null;
   let tickInterval = null;
-  let mapBounds = null; // { minLat, maxLat, minLng, maxLng }
+  let radarRadiusMeters = 200; // configurable by admin, default 200m
 
   function getPlayerId() {
     let id = localStorage.getItem('amogus_player_id');
@@ -199,7 +205,9 @@
     if (pw !== correct) { showToast('Wrong password'); return; }
     isAdmin = true;
     showScreen('screen-admin');
-    startGPS(); // start GPS immediately so it's ready when adding locations
+    startGPS();
+    const rSnap = await get(ref(db, SETTINGS_REF+'/radarRadius'));
+    document.getElementById('input-radar-radius').value = rSnap.exists() ? rSnap.val() : 200;
     loadAdminLocations();
   }
 
@@ -265,6 +273,11 @@
   }
 
   function listenRadar() {
+    // Listen to radar radius setting
+    onValue(ref(db, SETTINGS_REF+'/radarRadius'), snap => {
+      radarRadiusMeters = snap.exists() ? snap.val() : 200;
+      renderMap();
+    });
     // Listen to all positions
     onValue(ref(db, POSITIONS_REF), snap => {
       positions = snap.exists() ? snap.val() : {};
@@ -301,38 +314,31 @@
   }
 
   function computeMapBounds() {
-    const pts = [...locations.filter(l => l.lat && l.lng).map(l => ({ lat: l.lat, lng: l.lng }))];
-    if (myLat !== null) pts.push({ lat: myLat, lng: myLng });
-    if (pts.length === 0) { mapBounds = null; return; }
-    let minLat = pts[0].lat, maxLat = pts[0].lat;
-    let minLng = pts[0].lng, maxLng = pts[0].lng;
-    pts.forEach(p => {
-      if (p.lat < minLat) minLat = p.lat;
-      if (p.lat > maxLat) maxLat = p.lat;
-      if (p.lng < minLng) minLng = p.lng;
-      if (p.lng > maxLng) maxLng = p.lng;
-    });
-    // Add 20% padding
-    const latPad = (maxLat - minLat) * 0.2 || 0.002;
-    const lngPad = (maxLng - minLng) * 0.2 || 0.002;
-    mapBounds = {
-      minLat: minLat - latPad, maxLat: maxLat + latPad,
-      minLng: minLng - lngPad, maxLng: maxLng + lngPad
-    };
+    // Fixed-scale projection — nothing to compute, kept for call compatibility
   }
 
   function geoToSVG(lat, lng) {
-    if (!mapBounds) {
-      // No bounds yet — everything at center
-      return { x: 200, y: 200 };
-    }
-    const R = 175;
+    const R = 175;       // SVG pixels from center to edge
     const cx = 200, cy = 200;
-    const nx = (lng - mapBounds.minLng) / (mapBounds.maxLng - mapBounds.minLng); // 0..1
-    const ny = (lat - mapBounds.minLat) / (mapBounds.maxLat - mapBounds.minLat); // 0..1
-    const x = cx + (nx - 0.5) * 2 * R;
-    const y = cy - (ny - 0.5) * 2 * R; // invert Y
-    return { x, y };
+    // If we don't have our own position yet, center everything
+    if (myLat === null || myLng === null) return { x: cx, y: cy };
+    // Compute east/north offset in meters from user position (equirectangular approx)
+    const metersPerDegLat = 111320;
+    const metersPerDegLng = 111320 * Math.cos(myLat * Math.PI / 180);
+    const east = (lng - myLng) * metersPerDegLng;   // +east
+    const north = (lat - myLat) * metersPerDegLat;  // +north
+    const dist = Math.sqrt(east*east + north*north);
+    let px, py;
+    if (dist > radarRadiusMeters) {
+      // Beyond range — clamp to circle edge in the right direction
+      const ang = Math.atan2(north, east);
+      px = Math.cos(ang) * R;
+      py = Math.sin(ang) * R;
+    } else {
+      px = (east / radarRadiusMeters) * R;
+      py = (north / radarRadiusMeters) * R;
+    }
+    return { x: cx + px, y: cy - py }; // invert Y so north is up
   }
 
   function renderMap() {
@@ -480,6 +486,13 @@
         </div>
       </div>
     `).join('');
+  }
+
+  window.saveRadarRadius = async function() {
+    const val = parseInt(document.getElementById('input-radar-radius').value) || 200;
+    await set(ref(db, SETTINGS_REF+'/radarRadius'), val);
+    radarRadiusMeters = val;
+    showToast('Radar radius set to ' + val + 'm');
   }
 
   window.toggleLocation = async function(id, current) {
