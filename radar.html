@@ -86,6 +86,7 @@
   <div class="logo" style="margin-bottom:12px;">Admin · Locations</div>
   <div style="width:100%; max-width:420px;">
     <button class="btn btn-danger" style="margin-bottom:12px;" onclick="addLocationHere()">📍 Add location here (GPS)</button>
+    <button class="btn btn-ghost" style="margin-bottom:12px;" onclick="printQRSheet()">🖨 Print QR Sheet</button>
     <div class="label">Location name</div>
     <input type="text" id="input-loc-name" placeholder="e.g. Park" style="margin-bottom:12px;" />
     <div id="admin-locations-list"></div>
@@ -189,6 +190,7 @@
   let myLat = null;
   let myLng = null;
   let gpsWatchId = null;
+  let allLocations = [];
   let tickInterval = null;
   let radarRadiusMeters = 200; // configurable by admin, default 200m
 
@@ -553,8 +555,9 @@
     if (!gpsWatchId) startGPS();
     const snap = await get(ref(db, LOCATIONS_REF));
     const el = document.getElementById('admin-locations-list');
-    if (!snap.exists()) { el.innerHTML = '<div style="color:var(--muted); font-size:13px;">No locations yet.</div>'; return; }
+    if (!snap.exists()) { allLocations = []; el.innerHTML = '<div style="color:var(--muted); font-size:13px;">No locations yet.</div>'; return; }
     const locs = Object.entries(snap.val());
+    allLocations = locs.map(([id, l]) => ({ id, ...l }));
     el.innerHTML = locs.map(([id, l]) => `
       <div class="loc-card">
         <div>
@@ -591,6 +594,53 @@
   window.deleteLocation = async function(id) {
     await remove(ref(db, LOCATIONS_REF+'/'+id));
     loadAdminLocations();
+  }
+
+  window.printQRSheet = async function() {
+    if (!allLocations.length) await loadAdminLocations();
+    const locs = allLocations.filter(l => l.active !== false);
+    if (!locs.length) { showToast('No active locations'); return; }
+    const origin = window.location.origin;
+    const win = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html><head>
+<meta charset="UTF-8"/>
+<title>QR Sheet — Among Us City</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #fff; color: #000; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; }
+  .cell { border: 0.5px solid #ccc; padding: 10px 8px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; page-break-inside: avoid; break-inside: avoid; }
+  .cell-name { font-size: 13px; font-weight: 700; text-align: center; margin-bottom: 6px; letter-spacing: 0.03em; text-transform: uppercase; }
+  .cell-url { font-size: 8px; color: #666; text-align: center; margin-top: 5px; word-break: break-all; }
+  @media print {
+    body { margin: 0; }
+    .grid { width: 100%; }
+    .no-print { display: none !important; }
+  }
+</style>
+</head><body>
+<div class="no-print" style="padding:12px; background:#f5f5f5; display:flex; gap:12px; align-items:center;">
+  <button onclick="window.print()" style="padding:8px 18px; font-size:14px; font-weight:600; cursor:pointer; background:#222; color:#fff; border:none; border-radius:6px;">🖨 Print</button>
+  <span style="font-size:13px; color:#555;">${locs.length} locations — 3 per row</span>
+</div>
+<div class="grid" id="qr-grid"></div>
+<script>
+const locs = ${JSON.stringify(locs.map(l => ({ name: l.name })))};
+const origin = "${origin}";
+locs.forEach((loc, i) => {
+  const url = origin + '?location=' + encodeURIComponent(loc.name);
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  cell.innerHTML = '<div class="cell-name">' + loc.name + '</div><div id="qr'+i+'"></div><div class="cell-url">' + url + '</div>';
+  document.getElementById('qr-grid').appendChild(cell);
+  setTimeout(() => {
+    new QRCode(document.getElementById('qr'+i), { text: url, width: 140, height: 140, colorDark:'#000', colorLight:'#fff' });
+  }, 50 * i);
+});
+<\/script>
+</body></html>`);
+    win.document.close();
   }
 
   // Interval for radar cooldown display
