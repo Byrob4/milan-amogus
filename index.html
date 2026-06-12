@@ -1124,8 +1124,7 @@
     updates[GAME_REF + '/evidence'] = null;
     updates[GAME_REF + '/coopSessions'] = null;
     await update(ref(db), updates);
-    // Close admin overlay if open
-    closeOverlay('overlay-admin-float');
+    await remove(ref(db, HACKING_REF));
     // Force own transition to role reveal (don't go back to lobby)
     setTimeout(async () => {
       const s = await get(ref(db, GAME_REF));
@@ -3754,9 +3753,8 @@
       });
     }
     await update(ref(db), updates);
+    await remove(ref(db, HACKING_REF));
   }
-
-  window.goAdmin = function() { showScreen('screen-admin'); }
 
   window.switchAdminFloatTab = function(tab) {
     ['controls','missions'].forEach(t => {
@@ -4148,6 +4146,7 @@
       });
     }
     await update(ref(db), updates);
+    await remove(ref(db, HACKING_REF));
     showToast('Game reset');
     // Force local transition to lobby
     roleRevealed = false;
