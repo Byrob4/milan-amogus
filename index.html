@@ -2119,6 +2119,7 @@
   let quizTimerInterval = null;
   let quizTimeLeft = 15;
   let quizAnswered = false;
+  let quizWrong = 0;
 
   let coopMissionIdx = null;
   let coopSessionId = null;
@@ -2141,6 +2142,7 @@
     quizQuestions = shuffle(deduped).slice(0, 6);
     quizCurrentQ = 0;
     quizScore = 0;
+    quizWrong = 0;
     const catNames = {general:'General',math:'Math',geography:'Geography',history:'History',logic:'Logic',milan:'Milan',italy_en:'English C1',italy_it:'Italian B1',american:'Most Difficult American Test'};
     document.getElementById('quiz-category-label').textContent = catNames[cat] || cat;
     document.getElementById('quiz-feedback').style.display = 'none';
@@ -2166,6 +2168,7 @@
     quizQuestions = shuffle(deduped).slice(0, 6);
     quizCurrentQ = 0;
     quizScore = 0;
+    quizWrong = 0;
     const catNames = {general:'General',math:'Math',geography:'Geography',history:'History',logic:'Logic',milan:'Milan',italy_en:'English C1',italy_it:'Italian B1',american:'Most Difficult American Test'};
     document.getElementById('quiz-category-label').textContent = catNames[cat] || cat;
     document.getElementById('quiz-feedback').style.display = 'none';
@@ -2209,6 +2212,7 @@
     const q = quizQuestions[quizCurrentQ];
     const correct = idx === q.c;
     if (correct) quizScore++;
+    else quizWrong++;
     // Highlight answer buttons
     const btns = document.getElementById('quiz-answers').querySelectorAll('button');
     btns.forEach((btn, i) => {
@@ -2219,7 +2223,12 @@
     // Show feedback briefly then move on
     setTimeout(() => {
       quizCurrentQ++;
-      if (quizCurrentQ < 5) {
+      const remaining = quizQuestions.length - quizCurrentQ;
+      const canStillPass = (quizScore + remaining) >= 4;
+      // Early fail: 3 wrong or impossible to reach 4 correct
+      if (quizWrong >= 3 || !canStillPass) {
+        finishQuiz();
+      } else if (quizCurrentQ < quizQuestions.length) {
         showQuizQuestion();
       } else {
         finishQuiz();
@@ -2886,6 +2895,7 @@
           active: m.active !== false
         };
         if (mission.proofType === 'code' && m.code) mission.code = m.code;
+        if (mission.proofType === 'quiz' && m.quizCategory) mission.quizCategory = m.quizCategory;
         await push(ref(db, MISSIONS_REF), mission);
         imported++;
       }
