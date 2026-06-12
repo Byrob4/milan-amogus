@@ -3094,29 +3094,6 @@
     document.getElementById('overlay-coop').classList.add('active');
     coopStartByKey(mkey);
   }
-    document.getElementById('proof-mission-title').textContent = missions[missionIdx].location;
-    document.getElementById('proof-mission-desc').textContent = missions[missionIdx].description;
-    const proofType = missions[missionIdx].proofType;
-    document.getElementById('proof-photo-section').style.display = proofType === 'photo' ? 'block' : 'none';
-    document.getElementById('proof-code-section').style.display = proofType === 'code' ? 'block' : 'none';
-    document.getElementById('proof-audio-section').style.display = proofType === 'audio' ? 'block' : 'none';
-    const noneSection = document.getElementById('proof-none-section');
-    if (noneSection) noneSection.style.display = proofType === 'none' ? 'block' : 'none';
-    // For "none" proof, enable submit immediately
-    if (proofType === 'none') {
-      setTimeout(() => { document.getElementById('btn-submit-proof').disabled = false; }, 0);
-    }
-    document.getElementById('proof-photo-preview').innerHTML = '';
-    document.getElementById('proof-code-input').value = '';
-    document.getElementById('proof-audio-preview').innerHTML = '';
-    document.getElementById('btn-start-record').disabled = false;
-    document.getElementById('btn-stop-record').disabled = true;
-    document.getElementById('audio-timer').style.display = 'none';
-    proofPhotoData = null;
-    proofAudioData = null;
-    document.getElementById('btn-submit-proof').disabled = true;
-    document.getElementById('overlay-proof').classList.add('active');
-  }
 
   window.handlePhotoProof = function(e) {
     const file = e.target.files[0];
