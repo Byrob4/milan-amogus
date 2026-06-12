@@ -567,7 +567,7 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <div>
         <div class="label" style="margin:0" id="quiz-category-label"></div>
-        <div style="font-size:13px; color:var(--muted);">Question <span id="quiz-q-num">1</span>/5</div>
+        <div style="font-size:13px; color:var(--muted);">Question <span id="quiz-q-num">1/6</span></div>
       </div>
       <div style="font-size:28px; font-weight:700;" id="quiz-timer-display" style="color:var(--text);">15</div>
     </div>
@@ -2135,7 +2135,10 @@
     if (!pool.length) { showToast('Quiz data not loaded — ask admin to import quizzes'); return; }
     quizMissionIdx = missionIdx;
     quizMissionKey = mkey;
-    quizQuestions = shuffle(pool).slice(0, 5);
+    // Deduplicate by question text, then pick 6
+    const seen = new Set();
+    const deduped = pool.filter(q => { if (seen.has(q.q)) return false; seen.add(q.q); return true; });
+    quizQuestions = shuffle(deduped).slice(0, 6);
     quizCurrentQ = 0;
     quizScore = 0;
     const catNames = {general:'General',math:'Math',geography:'Geography',history:'History',logic:'Logic',milan:'Milan',italy_en:'English C1',italy_it:'Italian B1',american:'Most Difficult American Test'};
@@ -2157,7 +2160,10 @@
     if (!pool.length) { showToast('Quiz data not loaded — ask admin to import quizzes'); return; }
     quizMissionIdx = missionIdx;
     quizMissionKey = mkey;
-    quizQuestions = shuffle(pool).slice(0, 5);
+    // Deduplicate by question text, then pick 6
+    const seen = new Set();
+    const deduped = pool.filter(q => { if (seen.has(q.q)) return false; seen.add(q.q); return true; });
+    quizQuestions = shuffle(deduped).slice(0, 6);
     quizCurrentQ = 0;
     quizScore = 0;
     const catNames = {general:'General',math:'Math',geography:'Geography',history:'History',logic:'Logic',milan:'Milan',italy_en:'English C1',italy_it:'Italian B1',american:'Most Difficult American Test'};
@@ -2169,7 +2175,7 @@
 
   function showQuizQuestion() {
     const q = quizQuestions[quizCurrentQ];
-    document.getElementById('quiz-q-num').textContent = quizCurrentQ + 1;
+    document.getElementById('quiz-q-num').textContent = (quizCurrentQ + 1) + '/6';
     document.getElementById('quiz-question').textContent = q.q;
     document.getElementById('quiz-feedback').style.display = 'none';
     const answersEl = document.getElementById('quiz-answers');
@@ -2230,7 +2236,7 @@
     document.getElementById('quiz-answers').style.display = 'none';
     document.getElementById('quiz-timer-display').textContent = '';
     document.getElementById('quiz-timer-bar').style.width = '0';
-    const passed = quizScore >= 4;
+    const passed = quizScore >= 4; // 4/6 to pass
     const feedbackEl = document.getElementById('quiz-feedback');
     feedbackEl.style.display = 'block';
     document.getElementById('quiz-feedback-icon').textContent = passed ? '✅' : '❌';
@@ -2252,12 +2258,14 @@
         document.getElementById('quiz-next-btn').textContent = 'Close';
         await remove(ref(db, GAME_REF+'/players/'+myPlayerId+'/missions/'+quizMissionKey));
       } else {
-        document.getElementById('quiz-feedback-sub').textContent = 'Need 4/5. ' + (3-fails) + ' attempt' + (3-fails!==1?'s':'') + ' left.';
+        document.getElementById('quiz-feedback-sub').textContent = 'Need 4/6. ' + (3-fails) + ' attempt' + (3-fails!==1?'s':'') + ' left.';
         document.getElementById('quiz-next-btn').textContent = 'Try again';
         await update(ref(db), { [GAME_REF+'/players/'+myPlayerId+'/missions/'+quizMissionKey+'/quizFails']: fails });
+        const retryKey = quizMissionKey;
+        const retryIdx = quizMissionIdx;
         document.getElementById('quiz-next-btn').onclick = () => {
           closeOverlay('overlay-quiz');
-          setTimeout(() => openQuiz(quizMissionIdx), 300);
+          setTimeout(() => openQuizByKey(retryKey, retryIdx), 300);
         };
       }
     }
