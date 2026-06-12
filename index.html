@@ -1389,8 +1389,8 @@
       document.getElementById('paused-notice').style.display = isPaused ? 'block' : 'none';
       document.getElementById('progress-fill').style.width = progress + '%';
       renderTasks(me);
-      renderPlayerList('players-alive', alive, currentPhase==='voting');
-      renderPlayerList('players-dead', dead, currentPhase==='voting');
+      renderPlayerList('players-alive', alive, true);
+      renderPlayerList('players-dead', dead, true);
       const emergencyActive = !!gameState.meetingActive || !!gameState.votingActive;
       const commsBlocked = gameState.sabotageType === 'comms' && Date.now() < (gameState.sabotageCommsUntil || 0);
       const btnEmergency = document.getElementById('btn-emergency');
@@ -1404,8 +1404,8 @@
     } else {
       document.getElementById('imp-paused-notice').style.display = isPaused ? 'block' : 'none';
       renderKillList(alive.filter(p => p.role !== 'impostor'));
-      renderPlayerList('imp-players-alive', alive, true);
-      renderPlayerList('imp-players-dead', dead, true);
+      renderPlayerList('imp-players-alive', alive, false);
+      renderPlayerList('imp-players-dead', dead, false);
       renderCooldown();
       const sabotageUsed = gameState.sabotageUsed; // only Data Breach sets this
       // Comms: blocked only if currently active (sabotageType===comms and not expired), or game paused
@@ -1728,7 +1728,7 @@
       <div class="player-row">
         <div class="player-dot" style="background:${p.color}"></div>
         <span style="flex:1;">${p.name}</span>
-        ${showLives && p.lives !== undefined ? `<span style="font-size:12px; color:var(--amber); margin-right:6px;">${'❤️'.repeat(Math.max(0,p.lives))}</span>` : ''}
+        ${showLives && p.lives !== undefined && Object.keys(gameState.players).find(k => gameState.players[k].name === p.name) === myPlayerId ? `<span style="font-size:12px; color:var(--amber); margin-right:6px;">${'❤️'.repeat(Math.max(0,p.lives))}</span>` : ''}
         ${!p.alive && !p.pendingKill ? '<span class="pill pill-dead">eliminated</span>' : ''}
         ${p.pendingKill ? '<span class="pill" style="background:rgba(224,151,42,0.15);color:var(--amber);">injured</span>' : ''}
       </div>
@@ -3556,6 +3556,9 @@
       const btn = document.querySelector(`[onclick="switchImpTab('${t}')"]`);
       if (btn) btn.classList.toggle('active', t===tab);
     });
+    // Hide coop + emergency buttons during vote tab
+    const coopBtn = document.querySelector('#screen-impostor .btn-ghost[onclick="openCoopJoin()"]');
+    if (coopBtn) coopBtn.style.display = tab === 'vote' ? 'none' : '';
     if (tab==='vote') {
       document.getElementById('imp-vote-tab-btn').style.display = '';
       renderVoting();
