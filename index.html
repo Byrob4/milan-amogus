@@ -1466,13 +1466,16 @@
     if (_breachHackingPending) return;
     _breachHackingPending = true;
     try {
+      // Re-read resolved state from Firebase — admin may have pressed "all arrived" since the tick fired
+      const resolvedSnap = await get(ref(db, GAME_REF + '/sabotageBreachResolved'));
+      if (resolvedSnap.exists() && resolvedSnap.val() === true) return;
       const hackSnap = await get(ref(db, HACKING_REF));
       const hackVal = hackSnap.exists() ? hackSnap.val() : {};
       if (hackVal.permanent) return; // already activated by another impostor
       const { ids, maxDist } = computeNearestTwo();
       await set(ref(db, HACKING_REF), {
         active: true,
-        endTime: Date.now() + 86400000, // 24h = effectively permanent for the game
+        endTime: Date.now() + 86400000,
         cooldownUntil: 0,
         activatedBy: myPlayerId,
         tracked: ids.length ? ids : [],
@@ -1480,7 +1483,6 @@
         permanent: true
       });
     } finally {
-      // Reset flag after a delay so it can retry if the set failed
       setTimeout(() => { _breachHackingPending = false; }, 10000);
     }
   }
@@ -1510,9 +1512,10 @@
 
   window.resolveBreachSuccess = async function() {
     await update(ref(db), { [GAME_REF+'/sabotageBreachResolved']: true });
+    await remove(ref(db, HACKING_REF));
     _breachResolveOpen = false;
     closeOverlay('overlay-breach-resolve');
-    showToast('✓ Breach resolved — hacking not activated');
+    showToast('✓ Breach resolved — hacking cancelled');
   }
 
   window.resolveBreachFail = async function() {
