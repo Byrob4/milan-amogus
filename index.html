@@ -192,6 +192,7 @@
     <div id="main-role-pill"></div>
   </div>
   <div id="dead-notice" class="dead-notice" style="display:none">💀 You have been eliminated. You can still complete tasks — but you cannot speak to other players or vote.</div>
+  <div id="trace-banner" style="display:none; background:rgba(155,89,255,0.95); border-radius:var(--radius); padding:10px 14px; text-align:center; font-weight:700; font-size:13px; color:#fff; margin-bottom:16px;">👁 Someone is watching you</div>
   <div id="kill-contest-notice" style="display:none; background:rgba(226,75,74,0.12); border:1px solid rgba(226,75,74,0.5); border-radius:var(--radius); padding:16px; margin-bottom:16px; text-align:center;">
     <div style="font-size:15px; font-weight:600; color:var(--imp); margin-bottom:8px;">You have been killed!</div>
     <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">Review the photo. Contest within <span id="contest-timer" style="font-weight:600; color:var(--text);">30s</span> if it's invalid.</div>
@@ -279,6 +280,10 @@
       <canvas id="imp-radar-canvas" style="border-radius:50%; display:block; margin:0 auto; max-width:100%;"></canvas>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-top:8px; text-align:center;" id="imp-map-gps-status">Acquiring GPS...</div>
+    <div style="margin-top:12px;">
+      <button class="btn btn-danger" id="btn-hacking" onclick="activateHacking()" style="background:#9B59FF;">🛰 Activate Hacking</button>
+      <div class="cooldown-bar" style="height:4px; background:var(--border); border-radius:2px; overflow:hidden; margin-top:6px;"><div id="hacking-cooldown-fill" style="height:100%; background:#9B59FF; border-radius:2px; width:0%;"></div></div>
+    </div>
     <div id="imp-radar-legend" style="margin-top:12px; font-size:13px;"></div>
   </div>
   <div id="imp-tab-sabotage" style="display:none">
@@ -2827,7 +2832,121 @@
   // ============ RADAR & LOCATIONS ============
   let myLatLng = null;
   let watchId = null;
+  const POSITIONS_REF = 'radarPositions';
+  const HACKING_REF = 'radarActive';
+  let hackingActive = false;
+  let hackingTracked = [];
+  let hackingDynamicRadius = null;
+  let hackingRecalcInterval = null;
+  let lastPushTime = 0;
   let radarCenter = null; // null = auto-center on my position
+
+  function pushMyPosition() {
+    if (!myPlayerId || !myLatLng) return;
+    const now = Date.now();
+    if (now - lastPushTime < 8000) return;
+    lastPushTime = now;
+    const me = gameState?.players?.[myPlayerId];
+    set(ref(db, POSITIONS_REF+'/'+myPlayerId), {
+      lat: myLatLng.lat, lng: myLatLng.lng,
+      name: myName, color: me?.color || '#378ADD',
+      role: myRole, updatedAt: now
+    });
+  }
+
+  function metersBetween(lat1, lng1, lat2, lng2) {
+    const mLat = 111320, mLng = 111320 * Math.cos(lat1*Math.PI/180);
+    const dN = (lat2-lat1)*mLat, dE = (lng2-lng1)*mLng;
+    return Math.sqrt(dN*dN + dE*dE);
+  }
+
+  let positions = {};
+  function listenHacking() {
+    onValue(ref(db, POSITIONS_REF), s => { positions = s.exists() ? s.val() : {}; });
+    onValue(ref(db, HACKING_REF), s => {
+      const traceBanner = document.getElementById('trace-banner');
+      if (!s.exists()) {
+        hackingActive = false; hackingTracked = []; hackingDynamicRadius = null;
+        if (traceBanner) traceBanner.style.display = 'none';
+        return;
+      }
+      const r = s.val();
+      hackingActive = Date.now() < (r.endTime||0);
+      hackingTracked = r.tracked || [];
+      hackingDynamicRadius = r.dynamicRadius || null;
+      if (hackingActive && myRole !== 'impostor' && hackingTracked.includes(myPlayerId)) {
+        if (traceBanner && traceBanner.style.display !== 'block') {
+          traceBanner.style.display = 'block';
+          if (navigator.vibrate) navigator.vibrate([80,60,80]);
+        }
+      } else if (traceBanner) {
+        traceBanner.style.display = 'none';
+      }
+    });
+  }
+
+  function computeNearestTwo() {
+    if (!myLatLng) return { ids: [], maxDist: 0 };
+    const others = Object.entries(positions)
+      .filter(([pid, p]) => pid !== myPlayerId && p.lat != null && p.role !== 'impostor')
+      .map(([pid, p]) => ({ pid, dist: metersBetween(myLatLng.lat, myLatLng.lng, p.lat, p.lng) }))
+      .sort((a,b) => a.dist - b.dist);
+    const two = others.slice(0, 2);
+    return { ids: two.map(t=>t.pid), maxDist: two.length ? two[two.length-1].dist : 0 };
+  }
+
+  window.activateHacking = async function() {
+    const snap = await get(ref(db, HACKING_REF));
+    const now = Date.now();
+    if (snap.exists() && snap.val().cooldownUntil && now < snap.val().cooldownUntil) {
+      showToast('Hacking on cooldown'); return;
+    }
+    if (!myLatLng) { showToast('GPS not ready'); return; }
+    const durSnap = await get(ref(db, SETTINGS_REF+'/hackingDuration'));
+    const duration = durSnap.exists() ? durSnap.val() : 120;
+    const cdSnap = await get(ref(db, SETTINGS_REF+'/hackingCooldown'));
+    const cooldown = cdSnap.exists() ? cdSnap.val() : 180;
+    const { ids, maxDist } = computeNearestTwo();
+    if (!ids.length) { showToast('No players to track'); return; }
+    const endTime = now + duration*1000;
+    await set(ref(db, HACKING_REF), {
+      active: true, endTime, cooldownUntil: endTime + cooldown*1000,
+      activatedBy: myPlayerId, tracked: ids, dynamicRadius: Math.ceil(maxDist*1.15)
+    });
+    showToast('🛰 Hacking active');
+    if (hackingRecalcInterval) clearInterval(hackingRecalcInterval);
+    hackingRecalcInterval = setInterval(async () => {
+      if (Date.now() >= endTime) { clearInterval(hackingRecalcInterval); return; }
+      const { ids: nIds, maxDist: nMax } = computeNearestTwo();
+      if (nIds.length) await update(ref(db, HACKING_REF), { tracked: nIds, dynamicRadius: Math.ceil(nMax*1.15) });
+    }, 5000);
+  }
+
+  function updateHackingCooldown() {
+    const btn = document.getElementById('btn-hacking');
+    const fill = document.getElementById('hacking-cooldown-fill');
+    if (!btn) return;
+    get(ref(db, HACKING_REF)).then(snap => {
+      const now = Date.now();
+      if (!snap.exists()) { btn.disabled=false; btn.textContent='🛰 Activate Hacking'; if(fill)fill.style.width='0%'; return; }
+      const r = snap.val();
+      const on = now < (r.endTime||0);
+      const onCd = now < (r.cooldownUntil||0);
+      const total = (r.cooldownUntil||0)-(r.endTime||0);
+      const rem2 = Math.max(0,(r.cooldownUntil||0)-now);
+      if (on) {
+        btn.disabled=true; btn.textContent=`🛰 Hacking — ${Math.ceil(((r.endTime||0)-now)/1000)}s`;
+        if(fill)fill.style.width='100%';
+      } else if (onCd) {
+        btn.disabled=true; btn.textContent=`Ready in ${Math.ceil(rem2/1000)}s`;
+        if(fill)fill.style.width=(total>0?Math.round(rem2/total*100):0)+'%';
+      } else {
+        btn.disabled=false; btn.textContent='🛰 Activate Hacking';
+        if(fill)fill.style.width='0%';
+      }
+    });
+  }
+  setInterval(updateHackingCooldown, 500);
 
   function startGPS() {
     if (!navigator.geolocation) return;
@@ -2835,6 +2954,7 @@
     watchId = navigator.geolocation.watchPosition(
       (pos) => {
         myLatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        pushMyPosition();
         const s1 = document.getElementById('map-gps-status');
         const s2 = document.getElementById('imp-map-gps-status');
         // Redraw radar if map tab is visible
@@ -2967,9 +3087,33 @@
       if (hasGPS) legendItems.push({ name: loc.name, dist: Math.round(dist) });
     });
 
+    // Tracked players during hacking (impostor only)
+    if (myRole === 'impostor' && hackingActive && hasGPS) {
+      const effRange = hackingDynamicRadius ? Math.max(range, hackingDynamicRadius) : range;
+      hackingTracked.forEach(pid => {
+        const p = positions[pid];
+        if (!p || pid === myPlayerId || p.lat == null) return;
+        const { dist, bearing } = gpsToMetres(originLat, originLng, p.lat, p.lng);
+        const scale = Math.min(dist / effRange, 0.97);
+        const px = cx + Math.sin(bearing) * r * scale;
+        const py = cy - Math.cos(bearing) * r * scale;
+        const glow = ctx.createRadialGradient(px, py, 0, px, py, 14);
+        glow.addColorStop(0, 'rgba(155,89,255,0.5)');
+        glow.addColorStop(1, 'rgba(155,89,255,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath(); ctx.arc(px, py, 14, 0, 2*Math.PI); ctx.fill();
+        ctx.beginPath(); ctx.arc(px, py, 6, 0, 2*Math.PI);
+        ctx.fillStyle = p.color || '#9B59FF'; ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+        ctx.strokeStyle = '#060d14'; ctx.lineWidth = 3;
+        ctx.strokeText(p.name, px, py - 10);
+        ctx.fillText(p.name, px, py - 10);
+      });
+    }
+
     // My position dot (only if GPS)
     if (hasGPS) {
-      // Pulse ring
       ctx.beginPath(); ctx.arc(cx, cy, 10, 0, 2*Math.PI);
       ctx.strokeStyle = 'rgba(226,75,74,0.4)'; ctx.lineWidth = 2; ctx.stroke();
       ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 2*Math.PI);
@@ -3041,6 +3185,7 @@
   const _origGoToMain = window.goToMain;
   window.goToMain = function() {
     startGPS();
+    listenHacking();
     if (_origGoToMain) _origGoToMain();
   }
 
