@@ -493,6 +493,11 @@
       <input type="number" id="admin-live-tasks" style="flex:1;" min="1" max="8" />
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('tasksPerPlayer','admin-live-tasks')">Set</button>
     </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Quests to win (per crewmate)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-quests-win" style="flex:1;" min="1" max="20" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('questsToWin','admin-live-quests-win')">Set</button>
+    </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Face detection on kill</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
       <select id="admin-live-face" style="flex:1;">
@@ -899,7 +904,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1 };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3 };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1126,6 +1131,7 @@
       updates[GAME_REF + '/players/' + id + '/missions'] = {};
     });
     updates[GAME_REF + '/impostorCount'] = impostorCount;
+    updates[GAME_REF + '/questsToWin'] = settings.questsToWin || 3;
     updates[GAME_REF + '/state'] = 'playing';
     updates[GAME_REF + '/killCooldownUntil'] = 0;
     updates[GAME_REF + '/sabotageUsed'] = false;
@@ -1376,9 +1382,11 @@
     if (!me) return;
     const alive = Object.values(players).filter(p => p.alive);
     const dead = Object.values(players).filter(p => !p.alive);
-    const allTasks = Object.values(players).flatMap(p => Object.values(p.missions || {}));
-    const doneTasks = allTasks.filter(t => t.done).length;
-    const progress = allTasks.length ? Math.round((doneTasks / allTasks.length) * 100) : 0;
+    const crewmates = Object.values(players).filter(p => p.role !== 'impostor');
+    const questsNeeded = gameState.questsToWin || settings.questsToWin || 3;
+    const totalRequired = crewmates.length * questsNeeded;
+    const totalDone = crewmates.reduce((sum, p) => sum + Object.values(p.missions || {}).filter(m => m.done).length, 0);
+    const progress = totalRequired > 0 ? Math.min(100, Math.round((totalDone / totalRequired) * 100)) : 0;
 
     const isPaused = !!gameState.paused;
     if (myRole === 'crewmate') {
@@ -2067,14 +2075,18 @@
     const aliveCrew = Object.values(players).filter(p => (p.alive || p.pendingKill) && p.role !== 'impostor');
     const definitelyDeadCrew = Object.values(players).filter(p => !p.alive && !p.pendingKill && p.role !== 'impostor');
     const aliveImpostors = Object.values(players).filter(p => p.alive && p.role === 'impostor');
-    const allTasks = Object.values(players).flatMap(p => Object.values(p.missions || {}));
-    const allDone = allTasks.length > 0 && allTasks.every(t => t.done);
+    const questsToWin = g.questsToWin || settings.questsToWin || 3;
+    const crewmates = Object.values(players).filter(p => p.role !== 'impostor');
+    const allCrewDone = crewmates.length > 0 && crewmates.every(p => {
+      const done = Object.values(p.missions || {}).filter(m => m.done).length;
+      return done >= questsToWin;
+    });
     if (aliveImpostors.length === 0) {
       await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'crewmates', [GAME_REF+'/endReason']: 'All impostors eliminated. Crewmates win!' });
     } else if (aliveCrew.length <= aliveImpostors.length) {
       await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'impostor', [GAME_REF+'/endReason']: 'Impostors outnumber the crew. Impostor wins!' });
-    } else if (allDone) {
-      await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'crewmates', [GAME_REF+'/endReason']: 'All tasks completed. Crewmates win!' });
+    } else if (allCrewDone) {
+      await update(ref(db), { [GAME_REF+'/state']: 'ended', [GAME_REF+'/winner']: 'crewmates', [GAME_REF+'/endReason']: `All crewmates completed ${questsToWin} quests. Crewmates win!` });
     }
   }
 
@@ -3875,6 +3887,7 @@
     document.getElementById('admin-live-radar-range').value = settings.radarRange || 500;
     document.getElementById('admin-live-lives').value = settings.lives || 2;
     document.getElementById('admin-live-tasks').value = settings.tasksPerPlayer || 3;
+    document.getElementById('admin-live-quests-win').value = settings.questsToWin || 3;
     document.getElementById('admin-live-face').value = settings.faceDetection !== undefined ? settings.faceDetection : 1;
     document.getElementById('admin-live-photo-review').value = settings.photoReview || 0;
     document.getElementById('admin-live-sabotage-comms').value = settings.sabotageCommsDuration || 420;
@@ -4072,14 +4085,16 @@
   window.importMissions = async function(e) {
     const file = e.target.files[0];
     if (!file) return;
+    e.target.value = '';
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
       const missions = Array.isArray(parsed) ? parsed : (parsed.missions || []);
       if (!missions.length) { showToast('No missions found in file'); return; }
+      // Replace all existing missions
+      await remove(ref(db, MISSIONS_REF));
       let imported = 0;
       for (const m of missions) {
-        // Normalize: catalog uses "proof", app uses "proofType"
         const mission = {
           location: m.location || '',
           description: m.description || '',
@@ -4092,7 +4107,7 @@
         await push(ref(db, MISSIONS_REF), mission);
         imported++;
       }
-      showToast(imported + ' missions imported');
+      showToast(imported + ' missions imported (replaced)');
       loadAdminFloatMissions();
     } catch(err) {
       showToast('Invalid JSON file');
