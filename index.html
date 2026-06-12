@@ -579,6 +579,12 @@
     </div>
     <div style="font-size:15px; font-weight:500; margin-bottom:16px; line-height:1.5;" id="quiz-question"></div>
     <div id="quiz-answers" style="display:flex; flex-direction:column; gap:8px;"></div>
+    <div id="quiz-lang-choice" style="display:none; text-align:center; padding:16px 0;">
+      <div style="font-size:15px; font-weight:600; margin-bottom:8px;">Choose your language</div>
+      <div style="font-size:13px; color:var(--muted); margin-bottom:20px;">Choose your preferred language.</div>
+      <button class="btn btn-primary" style="margin-bottom:8px;" onclick="quizLangChoose('italian')">🇮🇹 Italian</button>
+      <button class="btn btn-primary" onclick="quizLangChoose('english')">🇬🇧 English</button>
+    </div>
     <div id="quiz-feedback" style="display:none; text-align:center; padding:16px 0;">
       <div style="font-size:36px; margin-bottom:8px;" id="quiz-feedback-icon"></div>
       <div style="font-size:15px; font-weight:600;" id="quiz-feedback-msg"></div>
@@ -2138,6 +2144,23 @@
   let coopTimerInterval = null;
   let coopListener = null;
 
+  window.quizLangChoose = function(lang) {
+    document.getElementById('quiz-lang-choice').style.display = 'none';
+    document.getElementById('quiz-answers').style.display = 'flex';
+    // Italian → English C1 questions (trap!), English → Italian B1 questions
+    const cat = lang === 'italian' ? 'italy_en' : 'italy_it';
+    const pool = allQuizzes[cat] || [];
+    const catNames = {italy_en:'English Grammar C1', italy_it:'Italian Grammar B1'};
+    document.getElementById('quiz-category-label').textContent = catNames[cat];
+    const seen = new Set();
+    const deduped = pool.filter(q => { if (seen.has(q.q)) return false; seen.add(q.q); return true; });
+    quizQuestions = shuffle(deduped).slice(0, 5);
+    quizCurrentQ = 0;
+    quizScore = 0;
+    quizWrong = 0;
+    showQuizQuestion();
+  }
+
   window.openQuizByKey = async function(mkey, missionIdx) {
     await loadQuizzes();
     const me = gameState.players[myPlayerId];
@@ -2156,12 +2179,22 @@
     quizScore = 0;
     quizWrong = 0;
     const catNames = {general:'General',math:'Math',geography:'Geography',history:'History',logic:'Logic',milan:'Milan',italy_en:'English C1',italy_it:'Italian B1',american:'Most Difficult American Test'};
-    document.getElementById('quiz-category-label').textContent = catNames[cat] || cat;
     document.getElementById('quiz-feedback').style.display = 'none';
-    document.getElementById('quiz-answers').style.display = 'flex';
+    const tryLaterEl = document.getElementById('quiz-try-later-btn');
+    if (tryLaterEl) tryLaterEl.style.display = 'none';
     document.getElementById('quiz-next-btn').onclick = quizNext;
     document.getElementById('overlay-quiz').classList.add('active');
-    showQuizQuestion();
+    if (cat === 'italy_en') {
+      // Show language choice screen
+      document.getElementById('quiz-category-label').textContent = 'Language Challenge';
+      document.getElementById('quiz-answers').style.display = 'none';
+      document.getElementById('quiz-lang-choice').style.display = 'block';
+    } else {
+      document.getElementById('quiz-category-label').textContent = catNames[cat] || cat;
+      document.getElementById('quiz-answers').style.display = 'flex';
+      document.getElementById('quiz-lang-choice').style.display = 'none';
+      showQuizQuestion();
+    }
   }
 
   window.openQuiz = async function(missionIdx) {
@@ -2266,6 +2299,8 @@
     if (passed) {
       document.getElementById('quiz-feedback-sub').textContent = 'Task complete!';
       document.getElementById('quiz-next-btn').textContent = 'Done';
+      const tl = document.getElementById('quiz-try-later-btn');
+      if (tl) tl.style.display = 'none';
       await update(ref(db), { [GAME_REF+'/players/'+myPlayerId+'/missions/'+quizMissionKey+'/done']: true });
       checkWinConditions();
     } else {
@@ -2278,6 +2313,8 @@
         // 3rd fail — discard for this player only
         document.getElementById('quiz-feedback-sub').textContent = '3 failures — this task has been discarded.';
         document.getElementById('quiz-next-btn').textContent = 'Close';
+        const tl2 = document.getElementById('quiz-try-later-btn');
+        if (tl2) tl2.style.display = 'none';
         await remove(ref(db, GAME_REF+'/players/'+myPlayerId+'/missions/'+quizMissionKey));
       } else {
         document.getElementById('quiz-feedback-sub').textContent = 'Need ' + (settings.quizPassScore||4) + '/5. ' + (3-fails) + ' attempt' + (3-fails!==1?'s':'') + ' left.';
@@ -2289,6 +2326,18 @@
           closeOverlay('overlay-quiz');
           setTimeout(() => openQuizByKey(retryKey, retryIdx), 300);
         };
+        // Try later button
+        let tryLaterBtn = document.getElementById('quiz-try-later-btn');
+        if (!tryLaterBtn) {
+          tryLaterBtn = document.createElement('button');
+          tryLaterBtn.id = 'quiz-try-later-btn';
+          tryLaterBtn.className = 'btn btn-ghost';
+          tryLaterBtn.style.marginTop = '8px';
+          document.getElementById('quiz-feedback').appendChild(tryLaterBtn);
+        }
+        tryLaterBtn.style.display = 'block';
+        tryLaterBtn.textContent = 'Try later';
+        tryLaterBtn.onclick = () => { closeOverlay('overlay-quiz'); };
       }
     }
   }
