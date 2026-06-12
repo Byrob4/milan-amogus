@@ -250,9 +250,15 @@
     showScreen('screen-radar');
     startGPS();
     listenRadar();
-    if (myRole === 'impostor') {
-      document.getElementById('radar-power-wrap').style.display = 'block';
-    }
+    // Live-watch my role so the power-up appears as soon as I'm impostor
+    onValue(ref(db, GAME_REF+'/players/'+myPlayerId), s => {
+      if (!s.exists()) return;
+      const p = s.val();
+      myRole = p.role;
+      myColor = p.color || myColor;
+      const wrap = document.getElementById('radar-power-wrap');
+      if (wrap) wrap.style.display = (myRole === 'impostor') ? 'block' : 'none';
+    });
   }
 
   function startGPS() {
