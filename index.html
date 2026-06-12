@@ -2846,6 +2846,7 @@
   const POSITIONS_REF = 'radarPositions';
   const HACKING_REF = 'radarActive';
   let hackingActive = false;
+  let hackingEndTime = 0;
   let hackingTracked = [];
   let hackingDynamicRadius = null;
   let hackingRecalcInterval = null;
@@ -2882,7 +2883,8 @@
         return;
       }
       const r = s.val();
-      hackingActive = Date.now() < (r.endTime||0);
+      hackingEndTime = r.endTime || 0;
+      hackingActive = Date.now() < hackingEndTime;
       hackingTracked = r.tracked || [];
       hackingDynamicRadius = r.dynamicRadius || null;
       if (hackingActive && myRole !== 'impostor' && hackingTracked.includes(myPlayerId)) {
@@ -2950,6 +2952,15 @@
       const onCd = now < (r.cooldownUntil||0);
       const total = (r.cooldownUntil||0)-(r.endTime||0);
       const rem2 = Math.max(0,(r.cooldownUntil||0)-now);
+      // When hacking just expired, clear local state + banner for everyone
+      if (!on && hackingActive) {
+        hackingActive = false;
+        hackingTracked = [];
+        hackingDynamicRadius = null;
+        const tb = document.getElementById('trace-banner');
+        if (tb) tb.style.display = 'none';
+        if (hackingRecalcInterval) { clearInterval(hackingRecalcInterval); hackingRecalcInterval = null; }
+      }
       if (on) {
         btn.disabled=true; btn.textContent=`🛰 Hacking — ${Math.ceil(((r.endTime||0)-now)/1000)}s`;
         if(fill)fill.style.width='100%';
@@ -2963,6 +2974,20 @@
     });
   }
   setInterval(updateHackingCooldown, 500);
+
+  // Global hacking expiry check (runs for everyone, clears banner when time's up)
+  setInterval(() => {
+    if (hackingActive && hackingEndTime && Date.now() >= hackingEndTime) {
+      hackingActive = false;
+      hackingTracked = [];
+      hackingDynamicRadius = null;
+      const tb = document.getElementById('trace-banner');
+      if (tb) tb.style.display = 'none';
+      // Force radar redraw to remove tracked dots
+      const impMap = document.getElementById('imp-tab-map');
+      if (impMap && impMap.style.display !== 'none') drawRadar('imp-radar-canvas', 'imp-radar-legend');
+    }
+  }, 500);
 
   function startGPS() {
     if (!navigator.geolocation) return;
