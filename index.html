@@ -2168,10 +2168,10 @@
     if (!mission) { showToast('Mission not found'); return; }
     const cat = mission.quizCategory || 'general';
     const pool = (allQuizzes[cat] || []);
-    if (!pool.length) { showToast('Quiz data not loaded — ask admin to import quizzes'); return; }
     quizMissionIdx = missionIdx;
     quizMissionKey = mkey;
-    // Deduplicate by question text, then pick 6
+    if (!pool.length) { showToast('Quiz data not loaded — ask admin to import quizzes'); return; }
+    // Deduplicate by question text, then pick 5
     const seen = new Set();
     const deduped = pool.filter(q => { if (seen.has(q.q)) return false; seen.add(q.q); return true; });
     quizQuestions = shuffle(deduped).slice(0, 5);
@@ -2204,21 +2204,32 @@
     const [mkey, mission] = missions[missionIdx];
     const cat = mission.quizCategory || 'general';
     const pool = (allQuizzes[cat] || []);
-    if (!pool.length) { showToast('Quiz data not loaded — ask admin to import quizzes'); return; }
     quizMissionIdx = missionIdx;
     quizMissionKey = mkey;
-    // Deduplicate by question text, then pick 6
+    if (!pool.length) { showToast('Quiz data not loaded — ask admin to import quizzes'); return; }
+    // Deduplicate by question text, then pick 5
     const seen = new Set();
     const deduped = pool.filter(q => { if (seen.has(q.q)) return false; seen.add(q.q); return true; });
     quizQuestions = shuffle(deduped).slice(0, 5);
     quizCurrentQ = 0;
     quizScore = 0;
     quizWrong = 0;
-    const catNames = {general:'General',math:'Math',geography:'Geography',history:'History',logic:'Logic',milan:'Milan',italy_en:'English C1',italy_it:'Italian B1',american:'Most Difficult American Test'};
-    document.getElementById('quiz-category-label').textContent = catNames[cat] || cat;
+    const catNames2 = {general:'General',math:'Math',geography:'Geography',history:'History',logic:'Logic',milan:'Milan',italy_en:'English C1',italy_it:'Italian B1',american:'Most Difficult American Test'};
     document.getElementById('quiz-feedback').style.display = 'none';
+    const tryLaterEl2 = document.getElementById('quiz-try-later-btn');
+    if (tryLaterEl2) tryLaterEl2.style.display = 'none';
+    document.getElementById('quiz-next-btn').onclick = quizNext;
     document.getElementById('overlay-quiz').classList.add('active');
-    showQuizQuestion();
+    if (cat === 'italy_en') {
+      document.getElementById('quiz-category-label').textContent = 'Language Challenge';
+      document.getElementById('quiz-answers').style.display = 'none';
+      document.getElementById('quiz-lang-choice').style.display = 'block';
+    } else {
+      document.getElementById('quiz-category-label').textContent = catNames2[cat] || cat;
+      document.getElementById('quiz-answers').style.display = 'flex';
+      document.getElementById('quiz-lang-choice').style.display = 'none';
+      showQuizQuestion();
+    }
   }
 
   function showQuizQuestion() {
