@@ -2844,7 +2844,7 @@
   function pushMyPosition() {
     if (!myPlayerId || !myLatLng) return;
     const now = Date.now();
-    if (now - lastPushTime < 8000) return;
+    if (now - lastPushTime < 5000) return;
     lastPushTime = now;
     const me = gameState?.players?.[myPlayerId];
     set(ref(db, POSITIONS_REF+'/'+myPlayerId), {
@@ -2888,7 +2888,14 @@
   function computeNearestTwo() {
     if (!myLatLng) return { ids: [], maxDist: 0 };
     const others = Object.entries(positions)
-      .filter(([pid, p]) => pid !== myPlayerId && p.lat != null && p.role !== 'impostor')
+      .filter(([pid, p]) => {
+        if (pid === myPlayerId || p.lat == null) return false;
+        // Exclude other impostors and dead players
+        const gp = gameState?.players?.[pid];
+        if (gp && gp.role === 'impostor') return false;
+        if (gp && !gp.alive && !gp.pendingKill) return false;
+        return true;
+      })
       .map(([pid, p]) => ({ pid, dist: metersBetween(myLatLng.lat, myLatLng.lng, p.lat, p.lng) }))
       .sort((a,b) => a.dist - b.dist);
     const two = others.slice(0, 2);
@@ -3186,6 +3193,8 @@
   window.goToMain = function() {
     startGPS();
     listenHacking();
+    // Periodic position push so everyone is trackable even without opening map
+    setInterval(() => { if (myLatLng) pushMyPosition(); }, 10000);
     if (_origGoToMain) _origGoToMain();
   }
 
