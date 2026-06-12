@@ -2125,6 +2125,28 @@
   let coopTimerInterval = null;
   let coopListener = null;
 
+  window.openQuizByKey = async function(mkey, missionIdx) {
+    await loadQuizzes();
+    const me = gameState.players[myPlayerId];
+    const mission = me.missions?.[mkey];
+    if (!mission) { showToast('Mission not found'); return; }
+    const cat = mission.quizCategory || 'general';
+    const pool = (allQuizzes[cat] || []);
+    if (!pool.length) { showToast('Quiz data not loaded — ask admin to import quizzes'); return; }
+    quizMissionIdx = missionIdx;
+    quizMissionKey = mkey;
+    quizQuestions = shuffle(pool).slice(0, 5);
+    quizCurrentQ = 0;
+    quizScore = 0;
+    const catNames = {general:'General',math:'Math',geography:'Geography',history:'History',logic:'Logic',milan:'Milan',italy_en:'English C1',italy_it:'Italian B1',american:'Most Difficult American Test'};
+    document.getElementById('quiz-category-label').textContent = catNames[cat] || cat;
+    document.getElementById('quiz-feedback').style.display = 'none';
+    document.getElementById('quiz-answers').style.display = 'flex';
+    document.getElementById('quiz-next-btn').onclick = quizNext;
+    document.getElementById('overlay-quiz').classList.add('active');
+    showQuizQuestion();
+  }
+
   window.openQuiz = async function(missionIdx) {
     await loadQuizzes();
     const me = gameState.players[myPlayerId];
