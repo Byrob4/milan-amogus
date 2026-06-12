@@ -147,16 +147,19 @@
   <button class="btn btn-primary" onclick="goToMain()">I'm ready</button>
 </div>
 
-<!-- MEETING (countdown before vote) -->
-<div class="screen" id="screen-meeting">
-  <div class="meeting-screen">
-    <div style="font-size:13px; font-weight:600; color:var(--imp); letter-spacing:0.08em; margin-bottom:8px;">EMERGENCY MEETING</div>
-    <div style="font-size:16px; color:var(--muted); margin-bottom:4px;">Head to the meeting point</div>
-    <div class="meeting-timer" id="meeting-countdown">5:00</div>
-    <div style="font-size:14px; color:var(--muted);">Voting opens when the timer ends</div>
-    <div style="margin-top:24px; font-size:13px; color:var(--muted);" id="meeting-caller"></div>
+<!-- MEETING BANNER (replaces full-screen meeting) -->
+<div id="meeting-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:250; background:rgba(226,75,74,0.97); padding:14px 20px 12px;">
+  <div style="font-size:11px; font-weight:700; letter-spacing:0.1em; margin-bottom:2px;">🚨 EMERGENCY MEETING</div>
+  <div style="font-size:14px; font-weight:600; margin-bottom:2px;">Head to the meeting point</div>
+  <div style="font-size:12px; opacity:0.85;" id="meeting-banner-caller"></div>
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
+    <div style="font-size:22px; font-weight:700; font-variant-numeric:tabular-nums;" id="meeting-banner-countdown">5:00</div>
+    <button onclick="dismissMeetingBanner()" style="background:rgba(255,255,255,0.2); border:none; color:#fff; border-radius:8px; padding:6px 14px; font-size:13px; font-weight:600; cursor:pointer;">Got it ✓</button>
   </div>
 </div>
+
+<!-- MEETING CORNER PILL (shown after dismissing banner) -->
+<div id="meeting-pill" style="display:none; position:fixed; top:8px; right:8px; z-index:250; background:rgba(226,75,74,0.92); color:#fff; border-radius:20px; padding:5px 12px; font-size:13px; font-weight:700; font-variant-numeric:tabular-nums;">🚨 <span id="meeting-pill-countdown">5:00</span></div>
 
 <!-- PHOTO REVIEW -->
 <div class="screen" id="screen-photo-review">
@@ -1207,6 +1210,9 @@
       mySelectedVote = null;
       stopSiren();
       stopAmbulance();
+      document.getElementById('meeting-banner').style.display = 'none';
+      document.getElementById('meeting-pill').style.display = 'none';
+      if (meetingTimerInterval) clearInterval(meetingTimerInterval);
       showScreen('screen-lobby');
       listenLobby();
       return;
@@ -1259,22 +1265,33 @@
     renderGame();
   }
 
+  let _meetingBannerDismissed = false;
+
+  window.dismissMeetingBanner = function() {
+    document.getElementById('meeting-banner').style.display = 'none';
+    document.getElementById('meeting-pill').style.display = 'block';
+  }
+
   function startMeetingCountdown() {
-    // Only play siren once per meeting (avoid double on re-render)
+    // Only play siren once per meeting
     const meetingId = gameState.emergencyCalledBy + '_' + (gameState.meetingEndTime||0);
     if (sirenPlayedForMeeting !== meetingId) {
       sirenPlayedForMeeting = meetingId;
+      _meetingBannerDismissed = false;
       playSirenSound(4000);
       if (navigator.vibrate) navigator.vibrate([500, 100, 500, 100, 500]);
+      // Show banner (or pill if already dismissed this meeting)
+      document.getElementById('meeting-banner').style.display = 'block';
+      document.getElementById('meeting-pill').style.display = 'none';
     }
     // Hide emergency buttons for everyone during meeting
     const be = document.getElementById('btn-emergency');
     const ie = document.getElementById('imp-btn-emergency');
     if (be) { be.disabled = true; be.style.display = 'none'; }
     if (ie) { ie.disabled = true; ie.style.display = 'none'; }
-    showScreen('screen-meeting');
+    // Stay on current screen (main/impostor) — don't redirect
     const callerName = gameState.players[gameState.emergencyCalledBy]?.name || 'Someone';
-    document.getElementById('meeting-caller').textContent = `Called by ${callerName}`;
+    document.getElementById('meeting-banner-caller').textContent = `Called by ${callerName}`;
     if (meetingTimerInterval) clearInterval(meetingTimerInterval);
     meetingTimerInterval = setInterval(() => {
       if (!gameState) return;
@@ -1283,19 +1300,21 @@
       const rem = Math.max(0, end - Date.now());
       const mins = Math.floor(rem / 60000);
       const secs = Math.floor((rem % 60000) / 1000);
-      const el = document.getElementById('meeting-countdown');
-      if (el) el.textContent = `${mins}:${secs.toString().padStart(2,'0')}`;
+      const timeStr = `${mins}:${secs.toString().padStart(2,'0')}`;
+      const bannerEl = document.getElementById('meeting-banner-countdown');
+      const pillEl = document.getElementById('meeting-pill-countdown');
+      if (bannerEl) bannerEl.textContent = timeStr;
+      if (pillEl) pillEl.textContent = timeStr;
       if (rem <= 0) {
         clearInterval(meetingTimerInterval);
+        document.getElementById('meeting-banner').style.display = 'none';
+        document.getElementById('meeting-pill').style.display = 'none';
         if (gameState.meetingActive) {
-          // Always check Firebase fresh for contested kills
           get(ref(db, GAME_REF+'/pendingEvidence')).then(snap => {
             if (snap.exists() && Object.keys(snap.val()).length > 0) {
-              // There are contested kills to review — show photo review
               currentPhase = 'review';
               showPhotoReview();
             } else {
-              // No contested kills — go straight to vote
               update(ref(db), {
                 [GAME_REF+'/meetingActive']: false,
                 [GAME_REF+'/votingActive']: true,
@@ -1946,6 +1965,8 @@
     if (voteTimerInterval) clearInterval(voteTimerInterval);
     if (meetingTimerInterval) clearInterval(meetingTimerInterval);
     if (cooldownInterval) clearInterval(cooldownInterval);
+    document.getElementById('meeting-banner').style.display = 'none';
+    document.getElementById('meeting-pill').style.display = 'none';
     const winner = gameState.winner;
     const isMyWin = (winner === 'crewmates' && myRole === 'crewmate') || (winner === 'impostor' && myRole === 'impostor');
     document.getElementById('result-icon').textContent = winner === 'crewmates' ? '🔵' : '🔴';
