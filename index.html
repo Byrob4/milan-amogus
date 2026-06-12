@@ -3511,7 +3511,6 @@
 
 
   window.adminResetGame = async function() {
-    closeOverlay('overlay-admin-float');
     // Reset game data but keep players, use forceLobby to push everyone to lobby
     const snap = await get(ref(db, GAME_REF+'/players'));
     const updates = {
