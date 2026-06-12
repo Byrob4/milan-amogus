@@ -1390,15 +1390,17 @@
       renderPlayerList('imp-players-alive', alive, true);
       renderPlayerList('imp-players-dead', dead, true);
       renderCooldown();
-      const sabotageUsed = gameState.sabotageUsed;
-      // Comms: always available (unless already used or paused)
+      const sabotageUsed = gameState.sabotageUsed; // only Data Breach sets this
+      // Comms: blocked only if currently active (sabotageType===comms and not expired), or game paused
+      const now2 = Date.now();
+      const commsCurrentlyActive = gameState.sabotageType === 'comms' && now2 < (gameState.sabotageCommsUntil || 0);
       // Breach: unlocks when >= sabotageBreachUnlockKills dead players (default 1)
       const allPl = Object.values(gameState.players || {});
       const deadPl = allPl.filter(p => !p.alive && p.role !== 'impostor');
       const breachThreshold = settings.sabotageBreachUnlockKills || 1;
       const breachUnlocked = !sabotageUsed && deadPl.length >= breachThreshold;
       document.getElementById('sabotage-used-notice').style.display = sabotageUsed ? 'block' : 'none';
-      document.getElementById('btn-sabotage-comms').disabled = sabotageUsed || isPaused;
+      document.getElementById('btn-sabotage-comms').disabled = commsCurrentlyActive || isPaused;
       document.getElementById('btn-sabotage-breach').disabled = sabotageUsed || !breachUnlocked || isPaused;
       const breachUnlockNotice = document.getElementById('sabotage-breach-unlock-notice');
       if (breachUnlockNotice) {
@@ -1719,7 +1721,7 @@
     const now = Date.now();
     const onCooldown = gameState.killCooldownUntil && now < gameState.killCooldownUntil;
     if (!aliveCrew.length) { el.innerHTML = '<div style="color:var(--muted); font-size:14px;">No crewmates left alive.</div>'; return; }
-    el.innerHTML = aliveCrew.map(p => {
+    el.innerHTML = aliveCrew.filter(p => !p.pendingKill).map(p => {
       const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
       return `<div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:0.5px solid var(--border);">
         <div class="player-dot" style="background:${p.color}"></div>
@@ -2906,6 +2908,11 @@
   window.confirmKill = async function() {
     if (!killTarget || !killPhotoData) return;
     if (gameState.paused) { showToast('Game is paused'); return; }
+    // Guard: target might already have a pending kill (e.g. double-tap before UI updates)
+    const targetCheck = gameState.players[killTarget];
+    if (!targetCheck?.alive || targetCheck?.pendingKill) {
+      showToast('Target is already down'); closeOverlay('overlay-kill'); return;
+    }
     const btnConfirm = document.getElementById('btn-confirm-kill');
     btnConfirm.disabled = true;
     btnConfirm.textContent = 'Verifying photo...';
@@ -3095,28 +3102,37 @@
   }
 
   window.sendSabotage = async function(type) {
-    if (gameState.sabotageUsed) { showToast('Sabotage already used'); return; }
     const now = Date.now();
     if (type === 'comms') {
-      const dur = (settings.sabotageCommsDuration || 420) * 1000;
+      // Comms can be reused; blocked only while currently active
+      if (gameState.sabotageType === 'comms' && now < (gameState.sabotageCommsUntil || 0)) {
+        showToast('Communications already disrupted'); return;
+      }
+      // Read fresh duration from Firebase in case admin changed it after join
+      const settingsSnap = await get(ref(db, SETTINGS_REF));
+      const liveSettings = settingsSnap.exists() ? { ...settings, ...settingsSnap.val() } : settings;
+      const dur = (liveSettings.sabotageCommsDuration || 420) * 1000;
       await update(ref(db), {
-        [GAME_REF+'/sabotageUsed']: true,
         [GAME_REF+'/sabotageType']: 'comms',
         [GAME_REF+'/sabotageCommsUntil']: now + dur
       });
       showToast('📡 Communication sabotage activated');
     } else if (type === 'breach') {
-      // Double-check unlock condition server-side
+      if (gameState.sabotageUsed) { showToast('Data Breach already used'); return; }
+      // Double-check unlock condition
       const allPlayers = Object.values(gameState.players || {});
       const deadCrew = allPlayers.filter(p => !p.alive && p.role !== 'impostor');
       const threshold = settings.sabotageBreachUnlockKills || 1;
       if (deadCrew.length < threshold) { showToast('Data Breach not unlocked yet'); return; }
-      const rallyLoc = settings.sabotageRallyLocation || '—';
-      const dur = (settings.sabotageBreachDuration || 300) * 1000;
+      // Read fresh settings
+      const settingsSnap2 = await get(ref(db, SETTINGS_REF));
+      const liveSettings2 = settingsSnap2.exists() ? { ...settings, ...settingsSnap2.val() } : settings;
+      const rallyLoc = liveSettings2.sabotageRallyLocation || '—';
+      const dur2 = (liveSettings2.sabotageBreachDuration || 300) * 1000;
       await update(ref(db), {
         [GAME_REF+'/sabotageUsed']: true,
         [GAME_REF+'/sabotageType']: 'breach',
-        [GAME_REF+'/sabotageBreachUntil']: now + dur,
+        [GAME_REF+'/sabotageBreachUntil']: now + dur2,
         [GAME_REF+'/sabotageBreachLocation']: rallyLoc,
         [GAME_REF+'/sabotageBreachResolved']: false
       });
