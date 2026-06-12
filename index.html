@@ -349,7 +349,10 @@
     <div id="admin-tab-missions">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
         <div class="label" style="margin:0">Missions</div>
-        <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddMission()">+ Add</button>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-danger" style="width:auto; padding:6px 12px; font-size:12px;" onclick="deleteAllMissions()">🗑 All</button>
+          <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddMission()">+ Add</button>
+        </div>
       </div>
       <div id="admin-missions-list"></div>
     </div>
@@ -674,6 +677,12 @@
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('rerollCooldown','admin-live-reroll')">Set</button>
     </div>
 
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Quiz — min correct answers (out of 5)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-quiz-pass" style="flex:1;" min="1" max="5" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('quizPassScore','admin-live-quiz-pass')">Set</button>
+    </div>
+
     <div id="admin-float-players-wrap">
     <div class="spacer"></div>
     <div class="label">Players</div>
@@ -689,7 +698,10 @@
     <div id="admin-float-tab-missions" style="display:none">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
         <div class="label" style="margin:0">Missions</div>
-        <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddMission()">+ Add</button>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-danger" style="width:auto; padding:6px 12px; font-size:12px;" onclick="deleteAllMissions()">🗑 All</button>
+          <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddMission()">+ Add</button>
+        </div>
       </div>
       <div id="admin-float-missions-list"></div>
     </div>
@@ -770,7 +782,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, adminPassword: ADMIN_PASSWORD_DEFAULT };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1327,7 +1339,7 @@
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
           <div style="flex:1;">
             <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location}</div>
-            <div style="font-weight:500;">${m.description}</div>
+            <div style="font-weight:500;">${m.description.replace('{pass}', settings.quizPassScore||4)}</div>
             <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo' : m.proofType === 'audio' ? '🎙 Audio' : '🔢 Code'}</div>
           </div>
           <button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="${m.category==='coop'?`openCoop(${i})`:`openProof(${i})`}">${m.category==='coop'?'👥':'Complete'}</button>
@@ -1350,7 +1362,7 @@
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
           <div style="flex:1;">
             <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location || ''} ${m.category ? '· '+m.category : ''}</div>
-            <div style="font-weight:500;">${m.description}</div>
+            <div style="font-weight:500;">${m.description.replace('{pass}', settings.quizPassScore||4)}</div>
             <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.category==='coop' ? '👥 Co-op mission' : m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : m.proofType === 'none' ? '✔ No proof' : m.proofType === 'quiz' ? '🧠 Quiz' : '🔢 Secret code required'}</div>
           </div>
           <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;">
@@ -2139,7 +2151,7 @@
     // Deduplicate by question text, then pick 6
     const seen = new Set();
     const deduped = pool.filter(q => { if (seen.has(q.q)) return false; seen.add(q.q); return true; });
-    quizQuestions = shuffle(deduped).slice(0, 6);
+    quizQuestions = shuffle(deduped).slice(0, 5);
     quizCurrentQ = 0;
     quizScore = 0;
     quizWrong = 0;
@@ -2165,7 +2177,7 @@
     // Deduplicate by question text, then pick 6
     const seen = new Set();
     const deduped = pool.filter(q => { if (seen.has(q.q)) return false; seen.add(q.q); return true; });
-    quizQuestions = shuffle(deduped).slice(0, 6);
+    quizQuestions = shuffle(deduped).slice(0, 5);
     quizCurrentQ = 0;
     quizScore = 0;
     quizWrong = 0;
@@ -2178,7 +2190,7 @@
 
   function showQuizQuestion() {
     const q = quizQuestions[quizCurrentQ];
-    document.getElementById('quiz-q-num').textContent = (quizCurrentQ + 1) + '/6';
+    document.getElementById('quiz-q-num').textContent = (quizCurrentQ + 1) + '/' + quizQuestions.length;
     document.getElementById('quiz-question').textContent = q.q;
     document.getElementById('quiz-feedback').style.display = 'none';
     const answersEl = document.getElementById('quiz-answers');
@@ -2224,7 +2236,7 @@
     setTimeout(() => {
       quizCurrentQ++;
       const remaining = quizQuestions.length - quizCurrentQ;
-      const canStillPass = (quizScore + remaining) >= 4;
+      const canStillPass = (quizScore + remaining) >= (settings.quizPassScore || 4);
       // Early fail: 3 wrong or impossible to reach 4 correct
       if (quizWrong >= 3 || !canStillPass) {
         finishQuiz();
@@ -2245,7 +2257,8 @@
     document.getElementById('quiz-answers').style.display = 'none';
     document.getElementById('quiz-timer-display').textContent = '';
     document.getElementById('quiz-timer-bar').style.width = '0';
-    const passed = quizScore >= 4; // 4/6 to pass
+    const passScore = settings.quizPassScore || 4;
+    const passed = quizScore >= passScore;
     const feedbackEl = document.getElementById('quiz-feedback');
     feedbackEl.style.display = 'block';
     document.getElementById('quiz-feedback-icon').textContent = passed ? '✅' : '❌';
@@ -2267,7 +2280,7 @@
         document.getElementById('quiz-next-btn').textContent = 'Close';
         await remove(ref(db, GAME_REF+'/players/'+myPlayerId+'/missions/'+quizMissionKey));
       } else {
-        document.getElementById('quiz-feedback-sub').textContent = 'Need 4/6. ' + (3-fails) + ' attempt' + (3-fails!==1?'s':'') + ' left.';
+        document.getElementById('quiz-feedback-sub').textContent = 'Need ' + (settings.quizPassScore||4) + '/5. ' + (3-fails) + ' attempt' + (3-fails!==1?'s':'') + ' left.';
         document.getElementById('quiz-next-btn').textContent = 'Try again';
         await update(ref(db), { [GAME_REF+'/players/'+myPlayerId+'/missions/'+quizMissionKey+'/quizFails']: fails });
         const retryKey = quizMissionKey;
@@ -2852,6 +2865,13 @@
     el.innerHTML = html;
   }
 
+  window.deleteAllMissions = async function() {
+    await remove(ref(db, MISSIONS_REF));
+    allMissions = [];
+    showToast('All missions deleted');
+    loadAdminFloatMissions();
+  }
+
   window.importQuizzes = async function(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -2904,6 +2924,13 @@
     } catch(err) {
       showToast('Invalid JSON file');
     }
+  }
+
+  window.deleteAllMissions = async function() {
+    await remove(ref(db, MISSIONS_REF));
+    allMissions = [];
+    showToast('All missions deleted');
+    loadAdminFloatMissions();
   }
 
   window.deleteMissionAndRefresh = async function(id) {
@@ -3085,6 +3112,7 @@
     document.getElementById('admin-live-review').value = settings.reviewDuration || 30;
     document.getElementById('admin-live-reveal-delay').value = settings.killRevealDelay || 60;
     document.getElementById('admin-live-reroll').value = settings.rerollCooldown || 60;
+    document.getElementById('admin-live-quiz-pass').value = settings.quizPassScore || 4;
     // Show all sections (in-game context)
     const pauseBtn = document.getElementById('admin-float-pause');
     const resetWrap = document.getElementById('admin-float-reset-wrap');
@@ -3202,6 +3230,7 @@
     document.getElementById('admin-live-review').value = settings.reviewDuration || 30;
     document.getElementById('admin-live-reveal-delay').value = settings.killRevealDelay || 60;
     document.getElementById('admin-live-reroll').value = settings.rerollCooldown || 60;
+    document.getElementById('admin-live-quiz-pass').value = settings.quizPassScore || 4;
     // Show all sections (in-game context)
     const pauseBtn = document.getElementById('admin-float-pause');
     const resetWrap = document.getElementById('admin-float-reset-wrap');
