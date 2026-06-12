@@ -31,6 +31,7 @@
     .pill { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; }
     .info-box { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 12px 14px; font-size: 13px; color: var(--muted); }
     .danger-banner { display: none; background: rgba(226,75,74,0.95); border-radius: var(--radius); padding: 12px 14px; text-align: center; font-weight: 700; font-size: 14px; }
+    .trace-banner { display: none; background: rgba(155,89,255,0.95); border-radius: var(--radius); padding: 10px 14px; text-align: center; font-weight: 700; font-size: 13px; color:#fff; }
     .cooldown-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 6px; }
     .cooldown-fill { height: 100%; background: var(--imp); border-radius: 2px; transition: width 0.5s linear; }
     .screen { display: none; flex-direction: column; align-items: center; width: 100%; max-width: 420px; }
@@ -89,10 +90,20 @@
     <input type="text" id="input-loc-name" placeholder="e.g. Park" style="margin-bottom:12px;" />
     <div id="admin-locations-list"></div>
     <div class="spacer"></div>
-    <div class="label">Radar radius (meters)</div>
-    <div style="display:flex; gap:8px; align-items:center;">
+    <div class="label">Map radius (meters)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
       <input type="number" id="input-radar-radius" placeholder="200" min="50" max="2000" style="flex:1;" />
       <button class="btn btn-ghost" style="width:auto; padding:10px 16px;" onclick="saveRadarRadius()">Set</button>
+    </div>
+    <div class="label">Hacking duration (seconds)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
+      <input type="number" id="input-hacking-duration" placeholder="120" min="30" max="600" style="flex:1;" />
+      <button class="btn btn-ghost" style="width:auto; padding:10px 16px;" onclick="saveHackingSetting('hackingDuration','input-hacking-duration')">Set</button>
+    </div>
+    <div class="label">Hacking cooldown (seconds)</div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <input type="number" id="input-hacking-cooldown" placeholder="180" min="30" max="900" style="flex:1;" />
+      <button class="btn btn-ghost" style="width:auto; padding:10px 16px;" onclick="saveHackingSetting('hackingCooldown','input-hacking-cooldown')">Set</button>
     </div>
     <div class="spacer"></div>
     <button class="btn btn-ghost" onclick="exitAdmin()">← Back</button>
@@ -105,6 +116,7 @@
 <div class="screen" id="screen-radar">
   <div class="logo">Among Us · Radar</div>
   <div class="danger-banner pulse" id="danger-banner">⚠ Danger — someone is watching you</div>
+  <div class="trace-banner pulse" id="trace-banner">📡 You've been traced</div>
   <div class="spacer" style="height:8px;"></div>
   <div class="map-wrap">
     <svg id="radar-svg" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
@@ -127,9 +139,9 @@
     <div class="info-box" id="gps-status">📡 Acquiring GPS...</div>
     <!-- Impostor radar button (only shown to impostor) -->
     <div id="radar-power-wrap" style="display:none;">
-      <button class="btn btn-danger" id="btn-radar" onclick="activateRadar()">🔴 Activate Radar</button>
+      <button class="btn btn-danger" id="btn-radar" onclick="activateHacking()" style="background:#9B59FF;">🛰 Activate Hacking</button>
       <div id="radar-cooldown-text" style="font-size:13px; color:var(--muted); margin-top:4px; text-align:center;"></div>
-      <div class="cooldown-bar"><div class="cooldown-fill" id="radar-cooldown-fill" style="width:0%"></div></div>
+      <div class="cooldown-bar"><div class="cooldown-fill" id="radar-cooldown-fill" style="width:0%; background:#9B59FF;"></div></div>
     </div>
     <button class="btn btn-ghost" onclick="showScreen('screen-join')">← Back</button>
   </div>
@@ -170,6 +182,10 @@
   let positions = {};
   let radarActive = false;
   let radarEndTime = 0;
+  let hackingActive = false;
+  let hackingEndTime = 0;
+  let hackingTracked = []; // ids of the 2 nearest being tracked
+  let hackingDynamicRadius = null; // expanded radius during hacking
   let myLat = null;
   let myLng = null;
   let gpsWatchId = null;
@@ -212,6 +228,10 @@
     startGPS();
     const rSnap = await get(ref(db, SETTINGS_REF+'/radarRadius'));
     document.getElementById('input-radar-radius').value = rSnap.exists() ? rSnap.val() : 200;
+    const hdSnap = await get(ref(db, SETTINGS_REF+'/hackingDuration'));
+    document.getElementById('input-hacking-duration').value = hdSnap.exists() ? hdSnap.val() : 120;
+    const hcSnap = await get(ref(db, SETTINGS_REF+'/hackingCooldown'));
+    document.getElementById('input-hacking-cooldown').value = hcSnap.exists() ? hcSnap.val() : 180;
     loadAdminLocations();
   }
 
@@ -297,21 +317,28 @@
         loadAdminLocations();
       }
     });
-    // Listen to radar active state
+    // Listen to hacking state
     onValue(ref(db, RADAR_REF), snap => {
-      if (!snap.exists()) { radarActive = false; return; }
+      const traceBanner = document.getElementById('trace-banner');
+      if (!snap.exists()) {
+        hackingActive = false; hackingTracked = []; hackingDynamicRadius = null;
+        if (traceBanner) traceBanner.style.display = 'none';
+        renderMap();
+        return;
+      }
       const r = snap.val();
-      radarEndTime = r.endTime || 0;
-      radarActive = Date.now() < radarEndTime;
-      const banner = document.getElementById('danger-banner');
-      const banner2 = document.getElementById('danger-banner-2');
-      if (radarActive && myRole !== 'impostor') {
-        banner.style.display = 'block';
-        banner2.style.display = 'block';
-        if (navigator.vibrate) navigator.vibrate([300,100,300]);
+      hackingEndTime = r.endTime || 0;
+      hackingActive = Date.now() < hackingEndTime;
+      hackingTracked = r.tracked || [];
+      hackingDynamicRadius = r.dynamicRadius || null;
+      // Alert ONLY the 2 tracked players (not impostor)
+      if (hackingActive && myRole !== 'impostor' && hackingTracked.includes(myPlayerId)) {
+        if (traceBanner && traceBanner.style.display !== 'block') {
+          traceBanner.style.display = 'block';
+          if (navigator.vibrate) navigator.vibrate([80, 60, 80]); // short distinct buzz
+        }
       } else {
-        banner.style.display = 'none';
-        banner2.style.display = 'none';
+        if (traceBanner) traceBanner.style.display = 'none';
       }
       renderMap();
     });
@@ -322,27 +349,29 @@
   }
 
   function geoToSVG(lat, lng) {
-    const R = 175;       // SVG pixels from center to edge
+    const R = 175;
     const cx = 200, cy = 200;
-    // If we don't have our own position yet, center everything
     if (myLat === null || myLng === null) return { x: cx, y: cy };
-    // Compute east/north offset in meters from user position (equirectangular approx)
+    // Use expanded radius if impostor is hacking and it's bigger than normal
+    let effRadius = radarRadiusMeters;
+    if (myRole === 'impostor' && hackingActive && hackingDynamicRadius) {
+      effRadius = Math.max(radarRadiusMeters, hackingDynamicRadius);
+    }
     const metersPerDegLat = 111320;
     const metersPerDegLng = 111320 * Math.cos(myLat * Math.PI / 180);
-    const east = (lng - myLng) * metersPerDegLng;   // +east
-    const north = (lat - myLat) * metersPerDegLat;  // +north
+    const east = (lng - myLng) * metersPerDegLng;
+    const north = (lat - myLat) * metersPerDegLat;
     const dist = Math.sqrt(east*east + north*north);
     let px, py;
-    if (dist > radarRadiusMeters) {
-      // Beyond range — clamp to circle edge in the right direction
+    if (dist > effRadius) {
       const ang = Math.atan2(north, east);
       px = Math.cos(ang) * R;
       py = Math.sin(ang) * R;
     } else {
-      px = (east / radarRadiusMeters) * R;
-      py = (north / radarRadiusMeters) * R;
+      px = (east / effRadius) * R;
+      py = (north / effRadius) * R;
     }
-    return { x: cx + px, y: cy - py }; // invert Y so north is up
+    return { x: cx + px, y: cy - py };
   }
 
   function renderMap() {
@@ -367,10 +396,11 @@
     const myPos = (myLat !== null) ? geoToSVG(myLat, myLng) : { x: 200, y: 200 };
     playerGroup.innerHTML += makeDot(myPos.x, myPos.y, myColor, myName, true);
 
-    // Draw other players (only if impostor AND radar active)
-    if (myRole === 'impostor' && radarActive) {
-      Object.entries(positions).forEach(([pid, p]) => {
-        if (pid === myPlayerId) return;
+    // Draw the 2 tracked players (only if impostor AND hacking active)
+    if (myRole === 'impostor' && hackingActive) {
+      hackingTracked.forEach(pid => {
+        const p = positions[pid];
+        if (!p || pid === myPlayerId) return;
         const { x, y } = geoToSVG(p.lat, p.lng);
         playerGroup.innerHTML += makeDot(x, y, p.color || '#378ADD', p.name, false);
       });
@@ -391,24 +421,64 @@
     return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  window.activateRadar = async function() {
+  function metersBetween(lat1, lng1, lat2, lng2) {
+    const mLat = 111320;
+    const mLng = 111320 * Math.cos(lat1 * Math.PI / 180);
+    const dN = (lat2 - lat1) * mLat;
+    const dE = (lng2 - lng1) * mLng;
+    return Math.sqrt(dN*dN + dE*dE);
+  }
+
+  function computeNearestTwo() {
+    if (myLat === null) return { ids: [], maxDist: 0 };
+    const others = Object.entries(positions)
+      .filter(([pid, p]) => pid !== myPlayerId && p.lat != null && p.role !== 'impostor')
+      .map(([pid, p]) => ({ pid, dist: metersBetween(myLat, myLng, p.lat, p.lng) }))
+      .sort((a, b) => a.dist - b.dist);
+    const two = others.slice(0, 2);
+    const maxDist = two.length ? two[two.length-1].dist : 0;
+    return { ids: two.map(t => t.pid), maxDist };
+  }
+
+  let hackingRecalcInterval = null;
+
+  window.activateHacking = async function() {
     const snap = await get(ref(db, RADAR_REF));
     const now = Date.now();
     if (snap.exists()) {
       const r = snap.val();
       if (r.cooldownUntil && now < r.cooldownUntil) {
-        showToast('Radar on cooldown'); return;
+        showToast('Hacking on cooldown'); return;
       }
     }
-    const settingsSnap = await get(ref(db, SETTINGS_REF+'/radarCooldown'));
-    const cooldown = settingsSnap.exists() ? settingsSnap.val() : 180;
+    if (myLat === null) { showToast('GPS not ready'); return; }
+    const durSnap = await get(ref(db, SETTINGS_REF+'/hackingDuration'));
+    const duration = durSnap.exists() ? durSnap.val() : 120; // 2 min
+    const cdSnap = await get(ref(db, SETTINGS_REF+'/hackingCooldown'));
+    const cooldown = cdSnap.exists() ? cdSnap.val() : 180;
+    const { ids, maxDist } = computeNearestTwo();
+    if (!ids.length) { showToast('No players to track'); return; }
+    const endTime = now + duration * 1000;
     await set(ref(db, RADAR_REF), {
-      active: true,
-      endTime: now + 60000,
-      cooldownUntil: now + cooldown * 1000,
-      activatedBy: myPlayerId
+      active: true, endTime,
+      cooldownUntil: endTime + cooldown * 1000,
+      activatedBy: myPlayerId,
+      tracked: ids,
+      dynamicRadius: Math.ceil(maxDist * 1.15) // expand a bit beyond farthest tracked
     });
-    showToast('Radar active — 60s');
+    showToast('🛰 Hacking active');
+    // Recalculate nearest two every 5s while active
+    if (hackingRecalcInterval) clearInterval(hackingRecalcInterval);
+    hackingRecalcInterval = setInterval(async () => {
+      if (Date.now() >= endTime) { clearInterval(hackingRecalcInterval); return; }
+      const { ids: newIds, maxDist: newMax } = computeNearestTwo();
+      if (newIds.length) {
+        await update(ref(db, RADAR_REF), {
+          tracked: newIds,
+          dynamicRadius: Math.ceil(newMax * 1.15)
+        });
+      }
+    }, 5000);
   }
 
   function updateRadarCooldown() {
@@ -417,28 +487,29 @@
       const btn = document.getElementById('btn-radar');
       const txt = document.getElementById('radar-cooldown-text');
       const fill = document.getElementById('radar-cooldown-fill');
+      if (!btn) return;
       if (!snap.exists()) {
-        if (btn) { btn.disabled = false; btn.textContent = '🔴 Activate Radar'; }
+        btn.disabled = false; btn.textContent = '🛰 Activate Hacking';
         if (txt) txt.textContent = 'Ready';
         if (fill) fill.style.width = '0%';
         return;
       }
       const r = snap.val();
-      const radarOn = now < (r.endTime || 0);
+      const on = now < (r.endTime || 0);
       const onCooldown = now < (r.cooldownUntil || 0);
       const cooldownTotal = (r.cooldownUntil||0) - (r.endTime||0);
       const cooldownRem = Math.max(0, (r.cooldownUntil||0) - now);
       const pct = cooldownTotal > 0 ? Math.round((cooldownRem/cooldownTotal)*100) : 0;
-      if (radarOn) {
+      if (on) {
         const rem = Math.ceil(((r.endTime||0) - now)/1000);
-        if (btn) { btn.disabled = true; btn.textContent = `🔴 Radar active — ${rem}s`; }
+        btn.disabled = true; btn.textContent = `🛰 Hacking — ${rem}s`;
         if (fill) fill.style.width = '100%';
       } else if (onCooldown) {
         const rem = Math.ceil(cooldownRem/1000);
-        if (btn) { btn.disabled = true; btn.textContent = `Radar ready in ${rem}s`; }
+        btn.disabled = true; btn.textContent = `Ready in ${rem}s`;
         if (fill) fill.style.width = pct + '%';
       } else {
-        if (btn) { btn.disabled = false; btn.textContent = '🔴 Activate Radar'; }
+        btn.disabled = false; btn.textContent = '🛰 Activate Hacking';
         if (txt) txt.textContent = 'Ready';
         if (fill) fill.style.width = '0%';
       }
@@ -490,6 +561,13 @@
         </div>
       </div>
     `).join('');
+  }
+
+  window.saveHackingSetting = async function(key, inputId) {
+    const val = parseInt(document.getElementById(inputId).value);
+    if (!val || val < 1) { showToast('Invalid value'); return; }
+    await set(ref(db, SETTINGS_REF+'/'+key), val);
+    showToast(key + ' set to ' + val);
   }
 
   window.saveRadarRadius = async function() {
