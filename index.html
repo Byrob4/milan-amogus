@@ -194,7 +194,7 @@
   <div id="dead-notice" class="dead-notice" style="display:none">💀 You have been eliminated. You can still complete tasks — but you cannot speak to other players or vote.</div>
   <div id="trace-banner" style="display:none; background:rgba(155,89,255,0.95); border-radius:var(--radius); padding:10px 14px; text-align:center; font-weight:700; font-size:13px; color:#fff; margin-bottom:16px;">👁 Someone is watching you</div>
   <div id="kill-contest-notice" style="display:none; background:rgba(226,75,74,0.12); border:1px solid rgba(226,75,74,0.5); border-radius:var(--radius); padding:16px; margin-bottom:16px; text-align:center;">
-    <div style="font-size:15px; font-weight:600; color:var(--imp); margin-bottom:8px;">You have been killed!</div>
+    <div style="font-size:15px; font-weight:600; color:var(--imp); margin-bottom:8px;" id="kill-contest-title">You have been killed!</div>
     <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">Review the photo. Contest within <span id="contest-timer" style="font-weight:600; color:var(--text);">30s</span> if it's invalid.</div>
     <div id="kill-contest-photo" style="margin-bottom:12px;"></div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
@@ -2307,6 +2307,10 @@
       if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 600, 200, 600]);
     }
     notice.style.display = 'block';
+    const me = gameState.players?.[myPlayerId];
+    const livesLeft = me?.lives !== undefined ? me.lives : 0;
+    const titleEl = document.getElementById('kill-contest-title');
+    if (titleEl) titleEl.textContent = livesLeft > 0 ? 'You have been shot!' : 'You have been killed!';
     document.getElementById('kill-contest-photo').innerHTML = `<img src="${killData.photo}" style="width:100%; border-radius:8px;" />`;
     // 30s contest window
     let rem = 30;
@@ -2886,6 +2890,7 @@
       notice.textContent = '⏳ Loading face detector, please wait...';
     }
     document.getElementById('btn-confirm-kill').disabled = true;
+    document.getElementById('btn-confirm-kill').textContent = 'Confirm kill';
     document.getElementById('overlay-kill').classList.add('active');
   }
 
