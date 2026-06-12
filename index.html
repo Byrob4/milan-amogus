@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Among Us — City</title>
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
   <style>
@@ -80,13 +78,7 @@
     textarea { width: 100%; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--radius-sm); padding: 12px; color: var(--text); font-size: 14px; min-height: 100px; outline: none; resize: none; }
     video { width: 100%; border-radius: var(--radius-sm); display: block; }
     canvas { display: none; }
-    #map-container { height: calc(100vh - 180px); min-height: 300px; border-radius: var(--radius); overflow: hidden; }
-    .leaflet-container { background: #1a1a2e; }
-    .map-location-marker { background: var(--crew); border: 2px solid #fff; border-radius: 50%; width: 14px; height: 14px; }
-    .map-my-marker { background: var(--imp); border: 2px solid #fff; border-radius: 50%; width: 16px; height: 16px; animation: pulse 1.5s infinite; }
-    .leaflet-popup-content-wrapper { background: var(--bg2); color: var(--text); border: 0.5px solid var(--border2); }
-    .leaflet-popup-tip { background: var(--bg2); }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
     .pulse { animation: pulse 1.5s infinite; }
   </style>
 </head>
@@ -131,7 +123,7 @@
   <button class="btn btn-primary" id="btn-start" onclick="startGame()" style="display:none">Start game (admin)</button>
   <div class="spacer"></div>
   <div id="admin-lobby-controls" style="display:none">
-    <button class="btn btn-ghost" onclick="openLobbyAdminSettings()" style="margin-bottom:8px;">⚙ Game settings</button>
+    <button class="btn btn-ghost" onclick="openAdminScreen()" style="margin-bottom:8px;">⚙ Game settings</button>
     <div class="spacer"></div>
   </div>
   <button class="btn btn-ghost" onclick="leaveGame()">Leave</button>
@@ -236,8 +228,12 @@
     <div class="card" id="players-dead"></div>
   </div>
   <div id="tab-map" style="display:none">
-    <div id="map-container"></div>
+    <div style="text-align:center; position:relative; display:inline-block; width:100%;">
+      <canvas id="radar-canvas" width="320" height="320" style="border-radius:50%; display:block; margin:0 auto;"></canvas>
+      <button onclick="centerRadar()" style="position:absolute; top:8px; right:8px; background:var(--bg3); border:0.5px solid var(--border2); color:var(--text); border-radius:var(--radius-sm); padding:6px 10px; font-size:12px; cursor:pointer;">📍 Center</button>
+    </div>
     <div style="font-size:12px; color:var(--muted); margin-top:8px; text-align:center;" id="map-gps-status">Acquiring GPS...</div>
+    <div id="radar-legend" style="margin-top:12px; font-size:13px;"></div>
   </div>
   <div id="tab-vote" style="display:none">
     <div class="label">Who is the impostor?</div>
@@ -280,8 +276,12 @@
     <div id="imp-tasks-list"></div>
   </div>
   <div id="imp-tab-map" style="display:none">
-    <div id="imp-map-container" style="height:calc(100vh - 220px); min-height:300px; border-radius:var(--radius); overflow:hidden;"></div>
+    <div style="text-align:center; position:relative; display:inline-block; width:100%;">
+      <canvas id="imp-radar-canvas" width="320" height="320" style="border-radius:50%; display:block; margin:0 auto;"></canvas>
+      <button onclick="centerRadar()" style="position:absolute; top:8px; right:8px; background:var(--bg3); border:0.5px solid var(--border2); color:var(--text); border-radius:var(--radius-sm); padding:6px 10px; font-size:12px; cursor:pointer;">📍 Center</button>
+    </div>
     <div style="font-size:12px; color:var(--muted); margin-top:8px; text-align:center;" id="imp-map-gps-status">Acquiring GPS...</div>
+    <div id="imp-radar-legend" style="margin-top:12px; font-size:13px;"></div>
   </div>
   <div id="imp-tab-sabotage" style="display:none">
     <div class="label">Sabotage</div>
@@ -343,87 +343,141 @@
   <div id="scan-content"></div>
 </div>
 
-<!-- ADMIN -->
+<!-- ADMIN SCREEN (full screen, 3 tabs) -->
 <div class="screen" id="screen-admin">
-  <div class="logo">Admin Panel</div>
-  <div id="admin-auth">
-    <h2>Enter password</h2>
-    <div class="spacer"></div>
-    <input type="password" id="admin-password" placeholder="Password" />
-    <div class="spacer"></div>
-    <button class="btn btn-primary" onclick="adminLogin()">Login</button>
-    <div class="spacer"></div>
-    <button class="btn btn-ghost" onclick="showScreen('screen-join')">Back</button>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <div class="logo" style="margin:0;">Admin</div>
+    <button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:13px;" id="admin-back-btn" onclick="adminGoBack()">← Back</button>
   </div>
-  <div id="admin-panel" style="display:none">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-      <h2>Admin</h2>
-      <button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:13px;" onclick="showScreen('screen-join')">Exit</button>
+  <div class="tab-bar">
+    <div class="tab active" onclick="switchAdminTab('controls')">Controls</div>
+    <div class="tab" onclick="switchAdminTab('missions')">Missions</div>
+    <div class="tab" onclick="switchAdminTab('locations')">Locations</div>
+  </div>
+
+  <!-- CONTROLS TAB -->
+  <div id="admin-tab-controls" style="overflow-y:auto;">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;" id="admin-float-reset-wrap">
+      <button class="btn btn-amber" id="admin-float-pause" onclick="togglePauseGame()">Pause game</button>
+      <button class="btn btn-danger" onclick="adminResetGame()">Reset game</button>
     </div>
-    <div class="tab-bar">
-      <div class="tab active" onclick="switchAdminTab('missions')">Missions</div>
-      <div class="tab" onclick="switchAdminTab('settings')">Settings</div>
-      <div class="tab" onclick="switchAdminTab('game')">Game</div>
+    <div class="label">Game state</div>
+    <div class="card" style="margin-bottom:12px;" id="admin-game-state"></div>
+    <div id="admin-float-reports" style="display:none; margin-bottom:12px;">
+      <div class="label" style="color:var(--imp);">⚠ Reports</div>
+      <div id="admin-float-reports-list"></div>
     </div>
-    <div id="admin-tab-missions">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <div class="label" style="margin:0">Missions</div>
-        <div style="display:flex; gap:6px;">
-          <button class="btn btn-danger" style="width:auto; padding:6px 12px; font-size:12px;" onclick="deleteAllMissions()">🗑 All</button>
-          <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddMission()">+ Add</button>
-        </div>
-      </div>
-      <div id="admin-missions-list"></div>
+    <div class="label">Players</div>
+    <div id="admin-float-players" style="margin-bottom:12px;"></div>
+    <div class="label">Settings</div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Number of impostors</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-impostors" style="flex:1;" min="1" max="3" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('impostorCount','admin-live-impostors')">Set</button>
     </div>
-    <div id="admin-tab-settings" style="display:none">
-      <div class="label">Kill cooldown (seconds)</div>
-      <input type="number" id="setting-cooldown" value="120" min="30" max="300" />
-      <div class="spacer"></div>
-      <div class="label">Tasks per player</div>
-      <input type="number" id="setting-tasks" value="3" min="1" max="8" />
-      <div class="spacer"></div>
-      <div class="label">Voting duration (seconds)</div>
-      <input type="number" id="setting-vote-duration" value="60" min="30" max="120" />
-      <div class="spacer"></div>
-      <div class="label">Meeting countdown (seconds)</div>
-      <input type="number" id="setting-meeting-duration" value="300" min="60" max="600" />
-      <div class="spacer"></div>
-      <div class="label">Number of impostors</div>
-      <input type="number" id="setting-impostors" value="1" min="1" max="3" />
-      <div class="spacer"></div>
-      <div class="label">Face detection on kill</div>
-      <select id="setting-face-detection">
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Kill cooldown (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-cooldown" style="flex:1;" min="10" max="300" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('cooldown','admin-live-cooldown')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Meeting countdown (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-meeting" style="flex:1;" min="30" max="600" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('meetingDuration','admin-live-meeting')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Vote duration (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-vote" style="flex:1;" min="20" max="180" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('voteDuration','admin-live-vote')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Emergency cooldown (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-emergency" style="flex:1;" min="30" max="600" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('emergencyCooldown','admin-live-emergency')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Review timer (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-review" style="flex:1;" min="10" max="120" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('reviewDuration','admin-live-review')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Kill reveal delay (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-reveal-delay" style="flex:1;" min="10" max="300" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('killRevealDelay','admin-live-reveal-delay')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Reroll cooldown (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-reroll" style="flex:1;" min="10" max="300" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('rerollCooldown','admin-live-reroll')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Quiz — min correct (out of 5)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-quiz-pass" style="flex:1;" min="1" max="5" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('quizPassScore','admin-live-quiz-pass')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Radar range (metres)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-radar-range" style="flex:1;" min="100" max="5000" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('radarRange','admin-live-radar-range')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Starting lives</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-lives" style="flex:1;" min="1" max="5" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('lives','admin-live-lives')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Tasks per player</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-tasks" style="flex:1;" min="1" max="8" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('tasksPerPlayer','admin-live-tasks')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Face detection on kill</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <select id="admin-live-face" style="flex:1;">
         <option value="1">Enabled</option>
         <option value="0">Disabled</option>
       </select>
-      <div class="spacer"></div>
-      <div class="label">Photo review during meeting</div>
-      <select id="setting-photo-review">
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('faceDetection','admin-live-face')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Photo review during meeting</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:16px;">
+      <select id="admin-live-photo-review" style="flex:1;">
         <option value="0">Disabled</option>
-        <option value="1">Enabled — players vote on kill photos</option>
+        <option value="1">Enabled</option>
       </select>
-      <div class="spacer"></div>
-      <div class="label">Starting lives per player</div>
-      <input type="number" id="setting-lives" value="2" min="1" max="5" />
-      <div class="spacer"></div>
-      <div class="label">Emergency meeting cooldown (seconds)</div>
-      <input type="number" id="setting-emergency-cooldown" value="180" min="30" max="600" />
-      <div class="spacer"></div>
-      <div class="label">Admin password</div>
-      <input type="password" id="setting-password" placeholder="Leave blank to keep current" />
-      <div class="spacer"></div>
-      <button class="btn btn-primary" onclick="saveSettings()">Save settings</button>
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('photoReview','admin-live-photo-review')">Set</button>
     </div>
-    <div id="admin-tab-game" style="display:none">
-      <div class="label">Current game state</div>
-      <div class="card" id="admin-game-state"></div>
-      <div class="spacer"></div>
-      <div id="admin-pause-btn-wrap">
-        <button class="btn btn-amber" id="btn-pause-game" onclick="togglePauseGame()">Pause game</button>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Admin password</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:16px;">
+      <input type="password" id="admin-live-password" style="flex:1;" placeholder="New password" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveAdminPassword()">Set</button>
+    </div>
+  </div>
+
+  <!-- MISSIONS TAB -->
+  <div id="admin-tab-missions" style="display:none; overflow-y:auto;">
+    <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+      <button class="btn btn-ghost" style="flex:1; font-size:13px;" onclick="document.getElementById('import-file-input').click()">⬆ Import missions</button>
+      <input type="file" accept="application/json,.json" id="import-file-input" style="display:none" onchange="importMissions(event)" />
+      <button class="btn btn-ghost" style="flex:1; font-size:13px;" onclick="document.getElementById('import-quiz-input').click()">🧠 Import quizzes</button>
+      <input type="file" accept="application/json,.json" id="import-quiz-input" style="display:none" onchange="importQuizzes(event)" />
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <div class="label" style="margin:0">Missions</div>
+      <div style="display:flex; gap:6px;">
+        <button class="btn btn-danger" style="width:auto; padding:6px 10px; font-size:12px;" onclick="deleteAllMissions()">🗑 All</button>
+        <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddMission()">+ Add</button>
       </div>
-      <div class="spacer"></div>
-      <button class="btn btn-danger" onclick="resetGame()">Reset game</button>
     </div>
+    <div id="admin-float-missions-list"></div>
+  </div>
+
+  <!-- LOCATIONS TAB -->
+  <div id="admin-tab-locations" style="display:none; overflow-y:auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <div class="label" style="margin:0">Locations</div>
+      <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddLocation()">+ Add</button>
+    </div>
+    <div id="admin-locations-list"></div>
   </div>
 </div>
 
@@ -659,120 +713,7 @@
 
 <!-- FLOATING ADMIN BUTTON (always visible to admin) -->
 <div id="admin-float-btn" style="display:none; position:fixed; bottom:80px; right:16px; z-index:300;">
-  <button onclick="openAdminFloat()" style="background:var(--imp); color:#fff; border:none; border-radius:50%; width:48px; height:48px; font-size:18px; cursor:pointer; font-weight:700; box-shadow:0 2px 8px rgba(0,0,0,0.4);">A</button>
-</div>
-
-<!-- ADMIN FLOAT OVERLAY -->
-<div class="overlay" id="overlay-admin-float">
-  <div class="overlay-box" style="max-height:85vh; overflow-y:auto;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-      <h3>Admin controls</h3>
-      <button onclick="closeOverlay('overlay-admin-float')" style="background:none; border:none; font-size:20px; cursor:pointer; color:var(--muted);">×</button>
-    </div>
-    <div class="tab-bar" style="margin-bottom:12px;">
-      <div class="tab active" onclick="switchAdminFloatTab('controls')">Controls</div>
-      <div class="tab" onclick="switchAdminFloatTab('missions')">Missions</div>
-    </div>
-    <div id="admin-float-tab-controls">
-    <div id="admin-float-reset-wrap" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-      <button class="btn btn-amber" id="admin-float-pause" onclick="togglePauseGame()">Pause game</button>
-      <button class="btn btn-danger" onclick="adminResetGame()">Reset game</button>
-    </div>
-
-    <div class="spacer"></div>
-    <div class="label">Settings (live)</div>
-
-    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Number of impostors</div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-      <input type="number" id="admin-live-impostors" style="flex:1;" min="1" max="3" />
-      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('impostorCount','admin-live-impostors')">Set</button>
-    </div>
-
-    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Kill cooldown (s)</div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-      <input type="number" id="admin-live-cooldown" style="flex:1;" min="10" max="300" />
-      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('cooldown','admin-live-cooldown')">Set</button>
-    </div>
-
-    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Meeting countdown (s)</div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-      <input type="number" id="admin-live-meeting" style="flex:1;" min="30" max="600" />
-      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('meetingDuration','admin-live-meeting')">Set</button>
-    </div>
-
-    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Vote duration (s)</div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-      <input type="number" id="admin-live-vote" style="flex:1;" min="20" max="180" />
-      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('voteDuration','admin-live-vote')">Set</button>
-    </div>
-
-    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Emergency cooldown (s)</div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-      <input type="number" id="admin-live-emergency" style="flex:1;" min="30" max="600" />
-      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('emergencyCooldown','admin-live-emergency')">Set</button>
-    </div>
-
-    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Review timer (s)</div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-      <input type="number" id="admin-live-review" style="flex:1;" min="10" max="120" />
-      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('reviewDuration','admin-live-review')">Set</button>
-    </div>
-
-    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Kill reveal delay (s)</div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-      <input type="number" id="admin-live-reveal-delay" style="flex:1;" min="10" max="300" />
-      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('killRevealDelay','admin-live-reveal-delay')">Set</button>
-    </div>
-
-    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Reroll cooldown (s)</div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-      <input type="number" id="admin-live-reroll" style="flex:1;" min="10" max="300" />
-      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('rerollCooldown','admin-live-reroll')">Set</button>
-    </div>
-
-    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Quiz — min correct answers (out of 5)</div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-      <input type="number" id="admin-live-quiz-pass" style="flex:1;" min="1" max="5" />
-      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('quizPassScore','admin-live-quiz-pass')">Set</button>
-    </div>
-
-    <div id="admin-float-players-wrap">
-    <div class="spacer"></div>
-    <div class="label">Players</div>
-    <div id="admin-float-players"></div>
-    </div>
-    <div class="spacer"></div>
-    <div id="admin-float-reports" style="display:none">
-      <div class="label" style="color:var(--imp);">⚠ Reports</div>
-      <div id="admin-float-reports-list"></div>
-    </div>
-      </div><!-- end admin-missions-sub -->
-      <div id="admin-locations-sub" style="display:none">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <div class="label" style="margin:0">Locations</div>
-          <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddLocation()">+ Add</button>
-        </div>
-        <div id="admin-locations-list"></div>
-      </div>
-    </div><!-- end admin-float-tab-missions -->
-    </div><!-- end admin-float-tab-controls -->
-
-    <div id="admin-float-tab-missions" style="display:none">
-      <div class="tab-bar" style="margin-bottom:12px;">
-        <div class="tab active" onclick="switchAdminMissionsTab('missions')">Missions</div>
-        <div class="tab" onclick="switchAdminMissionsTab('locations')">Locations</div>
-      </div>
-      <div id="admin-missions-sub">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <div class="label" style="margin:0">Missions</div>
-        <div style="display:flex; gap:6px;">
-          <button class="btn btn-danger" style="width:auto; padding:6px 12px; font-size:12px;" onclick="deleteAllMissions()">🗑 All</button>
-          <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddMission()">+ Add</button>
-        </div>
-      </div>
-      <div id="admin-float-missions-list"></div>
-    </div>
-  </div>
+  <button onclick="openAdminScreen()" style="background:var(--imp); color:#fff; border:none; border-radius:50%; width:48px; height:48px; font-size:18px; cursor:pointer; font-weight:700; box-shadow:0 2px 8px rgba(0,0,0,0.4);">A</button>
 </div>
 
 <!-- REPORT NOTIFICATION BANNER -->
@@ -2885,96 +2826,117 @@
     setTimeout(() => update(ref(db), { [GAME_REF+'/sabotageVisible']: false }), 8000);
   }
 
-  // switchTab and switchImpTab defined in map section above
 
 
-  // ============ MAP & LOCATIONS ============
-  let mapInstance = null;
-  let impMapInstance = null;
-  let myMarker = null;
-  let impMyMarker = null;
-  let locationMarkers = [];
-  let watchId = null;
+  // ============ RADAR & LOCATIONS ============
   let myLatLng = null;
-
-  // LOCATIONS_REF already declared above
-
-  async function loadLocations() {
-    const snap = await get(ref(db, LOCATIONS_REF));
-    if (snap.exists()) {
-      allLocations = Object.entries(snap.val()).map(([id, l]) => ({ id, ...l }));
-    } else {
-      allLocations = [];
-    }
-  }
-
-  function initMap(containerId) {
-    if (containerId === 'map-container' && mapInstance) return mapInstance;
-    if (containerId === 'imp-map-container' && impMapInstance) return impMapInstance;
-    const map = L.map(containerId, { zoomControl: true, attributionControl: false }).setView([45.4642, 9.1900], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-    if (containerId === 'map-container') mapInstance = map;
-    else impMapInstance = map;
-    return map;
-  }
-
-  function renderMapLocations(map) {
-    // Clear old markers
-    locationMarkers.forEach(m => map.removeLayer(m));
-    locationMarkers = [];
-    const active = allLocations.filter(l => l.active !== false && l.lat && l.lng);
-    active.forEach(loc => {
-      const icon = L.divIcon({ className: '', html: '<div class="map-location-marker"></div>', iconSize: [14,14], iconAnchor: [7,7] });
-      const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(map);
-      marker.bindPopup(`<b>${loc.name}</b>`);
-      locationMarkers.push(marker);
-    });
-    if (active.length > 0) {
-      const bounds = L.latLngBounds(active.map(l => [l.lat, l.lng]));
-      map.fitBounds(bounds, { padding: [40, 40] });
-    }
-  }
+  let watchId = null;
+  let radarCenter = null; // null = auto-center on my position
 
   function startGPS() {
     if (!navigator.geolocation) return;
     if (watchId) navigator.geolocation.clearWatch(watchId);
     watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        myLatLng = [pos.coords.latitude, pos.coords.longitude];
-        updateMyPositionOnMap();
-        const statusEl = document.getElementById('map-gps-status');
-        const impStatusEl = document.getElementById('imp-map-gps-status');
-        if (statusEl) statusEl.textContent = 'GPS active';
-        if (impStatusEl) impStatusEl.textContent = 'GPS active';
+        myLatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        const s1 = document.getElementById('map-gps-status');
+        const s2 = document.getElementById('imp-map-gps-status');
+        if (s1) s1.textContent = 'GPS active';
+        if (s2) s2.textContent = 'GPS active';
+        drawRadar('radar-canvas', 'radar-legend');
+        drawRadar('imp-radar-canvas', 'imp-radar-legend');
       },
-      (err) => {
-        const statusEl = document.getElementById('map-gps-status');
-        const impStatusEl = document.getElementById('imp-map-gps-status');
-        if (statusEl) statusEl.textContent = 'GPS unavailable';
-        if (impStatusEl) impStatusEl.textContent = 'GPS unavailable';
+      () => {
+        const s1 = document.getElementById('map-gps-status');
+        if (s1) s1.textContent = 'GPS unavailable — check permissions';
       },
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
     );
   }
 
-  function updateMyPositionOnMap() {
+  function gpsToMetres(lat1, lng1, lat2, lng2) {
+    const R = 6371000;
+    const dLat = (lat2-lat1) * Math.PI/180;
+    const dLng = (lng2-lng1) * Math.PI/180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+    const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const bearing = Math.atan2(
+      Math.sin((lng2-lng1)*Math.PI/180)*Math.cos(lat2*Math.PI/180),
+      Math.cos(lat1*Math.PI/180)*Math.sin(lat2*Math.PI/180) - Math.sin(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.cos((lng2-lng1)*Math.PI/180)
+    );
+    return { dist, bearing };
+  }
+
+  function drawRadar(canvasId, legendId) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const cx = W/2, cy = H/2, r = W/2 - 10;
+    const range = settings.radarRange || 500;
+
+    ctx.clearRect(0, 0, W, H);
+    // Background
+    ctx.fillStyle = '#0e0e1a';
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2*Math.PI); ctx.fill();
+    // Grid circles
+    [0.33, 0.66, 1].forEach(f => {
+      ctx.beginPath(); ctx.arc(cx, cy, r*f, 0, 2*Math.PI);
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1; ctx.stroke();
+    });
+    // Cross hairs
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx-r, cy); ctx.lineTo(cx+r, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, cy-r); ctx.lineTo(cx, cy+r); ctx.stroke();
+    // Range label
+    ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(range + 'm', cx + r*0.66 + 6, cy - 4);
+
+    // My position dot
+    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 2*Math.PI);
+    ctx.fillStyle = '#E24B4A'; ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+
     if (!myLatLng) return;
-    const myIcon = L.divIcon({ className: '', html: '<div class="map-my-marker"></div>', iconSize: [16,16], iconAnchor: [8,8] });
-    if (mapInstance) {
-      if (myMarker) myMarker.setLatLng(myLatLng);
-      else { myMarker = L.marker(myLatLng, { icon: myIcon }).addTo(mapInstance); myMarker.bindPopup('You'); }
+
+    // Draw locations
+    const active = allLocations.filter(l => l.active !== false && l.lat && l.lng);
+    const legendItems = [];
+    active.forEach(loc => {
+      const { dist, bearing } = gpsToMetres(myLatLng.lat, myLatLng.lng, loc.lat, loc.lng);
+      const scale = Math.min(dist / range, 1);
+      const px = cx + Math.sin(bearing) * r * scale;
+      const py = cy - Math.cos(bearing) * r * scale;
+      // Dot
+      ctx.beginPath(); ctx.arc(px, py, 5, 0, 2*Math.PI);
+      ctx.fillStyle = '#378ADD'; ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
+      // Name label
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(loc.name, px, py - 9);
+      legendItems.push({ name: loc.name, dist: Math.round(dist) });
+    });
+
+    // Legend
+    const legendEl = document.getElementById(legendId);
+    if (legendEl) {
+      legendEl.innerHTML = legendItems.length
+        ? legendItems.map(l => `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:0.5px solid var(--border);font-size:13px;"><span>📍 ${l.name}</span><span style="color:var(--muted);">${l.dist}m</span></div>`).join('')
+        : '<div style="color:var(--muted); font-size:13px;">No locations set yet</div>';
     }
-    if (impMapInstance) {
-      if (impMyMarker) impMyMarker.setLatLng(myLatLng);
-      else { impMyMarker = L.marker(myLatLng, { icon: myIcon }).addTo(impMapInstance); impMyMarker.bindPopup('You'); }
-    }
+  }
+
+  window.centerRadar = function() {
+    radarCenter = null;
+    drawRadar('radar-canvas', 'radar-legend');
+    drawRadar('imp-radar-canvas', 'imp-radar-legend');
   }
 
   window.switchTab = function(tab) {
     ['tasks','map','players','vote'].forEach(t => {
       const el = document.getElementById('tab-'+t);
       if (el) el.style.display = t===tab ? 'block' : 'none';
-      const btn = document.querySelector(`[onclick="switchTab('\${t}')"]`);
+      const btn = document.querySelector(`[onclick="switchTab('${t}')"]`);
       if (btn) btn.classList.toggle('active', t===tab);
     });
     if (tab==='vote') {
@@ -2984,10 +2946,7 @@
     if (tab==='map') {
       setTimeout(async () => {
         await loadLocations();
-        const map = initMap('map-container');
-        renderMapLocations(map);
-        updateMyPositionOnMap();
-        map.invalidateSize();
+        drawRadar('radar-canvas', 'radar-legend');
       }, 100);
     }
   }
@@ -3007,22 +2966,18 @@
     if (tab==='map') {
       setTimeout(async () => {
         await loadLocations();
-        const map = initMap('imp-map-container');
-        renderMapLocations(map);
-        updateMyPositionOnMap();
-        map.invalidateSize();
+        drawRadar('imp-radar-canvas', 'imp-radar-legend');
       }, 100);
     }
   }
 
-  // Start GPS when game begins
   const _origGoToMain = window.goToMain;
   window.goToMain = function() {
     startGPS();
     if (_origGoToMain) _origGoToMain();
   }
 
-  // ============ LOCATION ADMIN ============
+    // ============ LOCATION ADMIN ============
   window.switchAdminMissionsTab = function(tab) {
     document.getElementById('admin-missions-sub').style.display = tab === 'missions' ? 'block' : 'none';
     document.getElementById('admin-locations-sub').style.display = tab === 'locations' ? 'block' : 'none';
@@ -3111,6 +3066,70 @@
     qrEl.innerHTML = '';
     new QRCode(qrEl, { text: url, width: 200, height: 200, colorDark: '#000', colorLight: '#fff' });
     document.getElementById('overlay-qr').classList.add('active');
+  }
+
+  let adminPreviousScreen = null;
+
+  window.openAdminScreen = async function() {
+    adminPreviousScreen = document.querySelector('.screen.active')?.id || 'screen-lobby';
+    await loadSettings();
+    // Populate all fields
+    document.getElementById('admin-live-impostors').value = settings.impostorCount || 1;
+    document.getElementById('admin-live-cooldown').value = settings.cooldown || 120;
+    document.getElementById('admin-live-meeting').value = settings.meetingDuration || 300;
+    document.getElementById('admin-live-vote').value = settings.voteDuration || 60;
+    document.getElementById('admin-live-emergency').value = settings.emergencyCooldown || 180;
+    document.getElementById('admin-live-review').value = settings.reviewDuration || 30;
+    document.getElementById('admin-live-reveal-delay').value = settings.killRevealDelay || 60;
+    document.getElementById('admin-live-reroll').value = settings.rerollCooldown || 60;
+    document.getElementById('admin-live-quiz-pass').value = settings.quizPassScore || 4;
+    document.getElementById('admin-live-radar-range').value = settings.radarRange || 500;
+    document.getElementById('admin-live-lives').value = settings.lives || 2;
+    document.getElementById('admin-live-tasks').value = settings.tasksPerPlayer || 3;
+    document.getElementById('admin-live-face').value = settings.faceDetection !== undefined ? settings.faceDetection : 1;
+    document.getElementById('admin-live-photo-review').value = settings.photoReview || 0;
+    // Update pause button
+    const isPaused = gameState?.paused || false;
+    const pauseBtn = document.getElementById('admin-float-pause');
+    if (pauseBtn) { pauseBtn.textContent = isPaused ? 'Resume game' : 'Pause game'; pauseBtn.className = isPaused ? 'btn btn-success' : 'btn btn-amber'; }
+    // Load game state and players
+    loadAdminGameState();
+    // Start on Controls tab
+    switchAdminTab('controls');
+    showScreen('screen-admin');
+  }
+
+  window.adminGoBack = function() {
+    if (adminPreviousScreen) showScreen(adminPreviousScreen);
+    else showScreen('screen-lobby');
+  }
+
+  window.saveLiveSelect = async function(key, inputId) {
+    const val = parseInt(document.getElementById(inputId).value);
+    settings[key] = val;
+    await update(ref(db), { [SETTINGS_REF+'/'+key]: val });
+    showToast(key + ' updated');
+  }
+
+  window.saveAdminPassword = async function() {
+    const pw = document.getElementById('admin-live-password').value.trim();
+    if (!pw) { showToast('Enter a password'); return; }
+    settings.adminPassword = pw;
+    await update(ref(db), { [SETTINGS_REF+'/adminPassword']: pw });
+    showToast('Password updated');
+    document.getElementById('admin-live-password').value = '';
+  }
+
+  window.switchAdminTab = function(tab) {
+    ['controls','missions','locations'].forEach(t => {
+      const el = document.getElementById('admin-tab-'+t);
+      if (el) el.style.display = t===tab ? 'block' : 'none';
+      const btn = document.querySelector(`[onclick="switchAdminTab('${t}')"]`);
+      if (btn) btn.classList.toggle('active', t===tab);
+    });
+    if (tab==='missions') loadAdminFloatMissions();
+    if (tab==='locations') loadAdminLocations();
+    if (tab==='controls') loadAdminGameState();
   }
 
   window.leaveGame = async function() {
@@ -3426,53 +3445,7 @@
     showToast('Report submitted');
   }
 
-  window.openAdminFloat = async function() {
-    // Load all live settings
-    document.getElementById('admin-live-impostors').value = settings.impostorCount || 1;
-    document.getElementById('admin-live-cooldown').value = settings.cooldown || 120;
-    document.getElementById('admin-live-meeting').value = settings.meetingDuration || 300;
-    document.getElementById('admin-live-vote').value = settings.voteDuration || 60;
-    document.getElementById('admin-live-emergency').value = settings.emergencyCooldown || 180;
-    document.getElementById('admin-live-review').value = settings.reviewDuration || 30;
-    document.getElementById('admin-live-reveal-delay').value = settings.killRevealDelay || 60;
-    document.getElementById('admin-live-reroll').value = settings.rerollCooldown || 60;
-    document.getElementById('admin-live-quiz-pass').value = settings.quizPassScore || 4;
-    // Show all sections (in-game context)
-    const pauseBtn = document.getElementById('admin-float-pause');
-    const resetWrap = document.getElementById('admin-float-reset-wrap');
-    const playersWrap = document.getElementById('admin-float-players-wrap');
-    if (pauseBtn) pauseBtn.style.display = '';
-    if (resetWrap) resetWrap.style.display = 'grid';
-    if (playersWrap) playersWrap.style.display = 'block';
-    // Render player list with life controls
-    const snap = await get(ref(db, GAME_REF+'/players'));
-    const el = document.getElementById('admin-float-players');
-    if (snap.exists()) {
-      const players = snap.val();
-      el.innerHTML = Object.entries(players).map(([id, p]) => `
-        <div style="display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:0.5px solid var(--border);">
-          <div class="player-dot" style="background:${p.color}"></div>
-          <span style="flex:1; font-size:14px;">${p.name}</span>
-          <span style="font-size:12px; color:var(--amber);">${'❤️'.repeat(Math.max(0,p.lives||0))}</span>
-          <button onclick="adminSetAlive('${id}',true)" style="background:var(--green);color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;">+life</button>
-          <button onclick="adminSetAlive('${id}',false)" style="background:var(--imp);color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer;">kill</button>
-        </div>`).join('');
-    }
-    // Show pending reports
-    const rSnap = await get(ref(db, GAME_REF+'/reports'));
-    const rEl = document.getElementById('admin-float-reports');
-    const rList = document.getElementById('admin-float-reports-list');
-    if (rSnap.exists()) {
-      const reports = Object.values(rSnap.val());
-      rEl.style.display = 'block';
-      rList.innerHTML = reports.map(r => `<div style="background:var(--bg3);border-radius:6px;padding:8px;margin-bottom:6px;font-size:13px;"><b style="color:var(--imp);">${r.reportedName}</b> — ${r.reason}<div style="color:var(--muted);font-size:11px;">by ${r.reportedByName}</div></div>`).join('');
-    } else { rEl.style.display = 'none'; }
-    // Update pause button
-    const snap2 = await get(ref(db, GAME_REF+'/paused'));
-    const btn = document.getElementById('admin-float-pause');
-    if (btn) { btn.textContent = (snap2.exists()&&snap2.val()) ? 'Resume game' : 'Pause game'; btn.className = (snap2.exists()&&snap2.val()) ? 'btn btn-success' : 'btn btn-amber'; }
-    document.getElementById('overlay-admin-float').classList.add('active');
-  }
+
 
   window.adminSetAlive = async function(id, addLife) {
     const snap = await get(ref(db, GAME_REF+'/players/'+id));
@@ -3544,31 +3517,7 @@
     showToast('Player removed');
   }
 
-  window.openLobbyAdminSettings = async function() {
-    await loadSettings();
-    document.getElementById('admin-live-impostors').value = settings.impostorCount || 1;
-    document.getElementById('admin-live-cooldown').value = settings.cooldown || 120;
-    document.getElementById('admin-live-meeting').value = settings.meetingDuration || 300;
-    document.getElementById('admin-live-vote').value = settings.voteDuration || 60;
-    document.getElementById('admin-live-emergency').value = settings.emergencyCooldown || 180;
-    document.getElementById('admin-live-review').value = settings.reviewDuration || 30;
-    document.getElementById('admin-live-reveal-delay').value = settings.killRevealDelay || 60;
-    document.getElementById('admin-live-reroll').value = settings.rerollCooldown || 60;
-    document.getElementById('admin-live-quiz-pass').value = settings.quizPassScore || 4;
-    // Show all sections (in-game context)
-    const pauseBtn = document.getElementById('admin-float-pause');
-    const resetWrap = document.getElementById('admin-float-reset-wrap');
-    const playersWrap = document.getElementById('admin-float-players-wrap');
-    if (pauseBtn) pauseBtn.style.display = '';
-    if (resetWrap) resetWrap.style.display = 'grid';
-    if (playersWrap) playersWrap.style.display = 'block';
-    // Hide pause and reset buttons in lobby context
-    document.getElementById('admin-float-pause').style.display = 'none';
-    document.getElementById('admin-float-reset-wrap').style.display = 'none';
-    document.getElementById('admin-float-players-wrap').style.display = 'none';
-    document.getElementById('admin-float-reports').style.display = 'none';
-    document.getElementById('overlay-admin-float').classList.add('active');
-  }
+
 
   window.adminResetGame = async function() {
     closeOverlay('overlay-admin-float');
