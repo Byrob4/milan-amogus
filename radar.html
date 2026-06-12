@@ -87,7 +87,7 @@
     <input type="text" id="input-loc-name" placeholder="e.g. Park" style="margin-bottom:12px;" />
     <div id="admin-locations-list"></div>
     <div class="spacer"></div>
-    <button class="btn btn-ghost" onclick="showScreen('screen-join')">Back to radar</button>
+    <button class="btn btn-ghost" onclick="exitAdmin()">← Back</button>
   </div>
 </div>
 
@@ -186,6 +186,12 @@
 
   window.showAdminJoin = function() { showScreen('screen-admin-join'); }
 
+  window.exitAdmin = function() {
+    showScreen('screen-join');
+    // Re-render locations on map if GPS active
+    if (myLat !== null) computeMapBounds();
+  }
+
   window.adminLogin = async function() {
     const pw = document.getElementById('input-admin-pw').value;
     const snap = await get(ref(db, SETTINGS_REF+'/adminPassword'));
@@ -193,6 +199,7 @@
     if (pw !== correct) { showToast('Wrong password'); return; }
     isAdmin = true;
     showScreen('screen-admin');
+    startGPS(); // start GPS immediately so it's ready when adding locations
     loadAdminLocations();
   }
 
@@ -226,8 +233,10 @@
         myLat = pos.coords.latitude;
         myLng = pos.coords.longitude;
         document.getElementById('gps-status').textContent = '📡 GPS active';
-        // Push position to Firebase (throttled — only if changed significantly)
         pushMyPosition();
+        // Recompute bounds and re-render whenever GPS updates
+        computeMapBounds();
+        renderMap();
       },
       err => {
         document.getElementById('gps-status').textContent = '⚠ GPS error: ' + err.message;
@@ -266,6 +275,10 @@
       locations = snap.exists() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : [];
       computeMapBounds();
       renderMap();
+      // Also refresh admin list if on admin screen
+      if (isAdmin && document.getElementById('screen-admin').classList.contains('active')) {
+        loadAdminLocations();
+      }
     });
     // Listen to radar active state
     onValue(ref(db, RADAR_REF), snap => {
@@ -288,8 +301,7 @@
   }
 
   function computeMapBounds() {
-    // Compute bounding box from locations + current position
-    const pts = [...locations.map(l => ({ lat: l.lat, lng: l.lng }))];
+    const pts = [...locations.filter(l => l.lat && l.lng).map(l => ({ lat: l.lat, lng: l.lng }))];
     if (myLat !== null) pts.push({ lat: myLat, lng: myLng });
     if (pts.length === 0) { mapBounds = null; return; }
     let minLat = pts[0].lat, maxLat = pts[0].lat;
@@ -310,8 +322,10 @@
   }
 
   function geoToSVG(lat, lng) {
-    // Map lat/lng to SVG circle (radius 180, center 200,200)
-    if (!mapBounds) return { x: 200, y: 200 };
+    if (!mapBounds) {
+      // No bounds yet — everything at center
+      return { x: 200, y: 200 };
+    }
     const R = 175;
     const cx = 200, cy = 200;
     const nx = (lng - mapBounds.minLng) / (mapBounds.maxLng - mapBounds.minLng); // 0..1
@@ -339,11 +353,9 @@
         </g>`;
     });
 
-    // Draw my position (always)
-    if (myLat !== null) {
-      const { x, y } = geoToSVG(myLat, myLng);
-      playerGroup.innerHTML += makeDot(x, y, myColor, myName, true);
-    }
+    // Draw my position (always — center if no GPS yet)
+    const myPos = (myLat !== null) ? geoToSVG(myLat, myLng) : { x: 200, y: 200 };
+    playerGroup.innerHTML += makeDot(myPos.x, myPos.y, myColor, myName, true);
 
     // Draw other players (only if impostor AND radar active)
     if (myRole === 'impostor' && radarActive) {
@@ -424,16 +436,29 @@
   }
 
   // Admin: add location using current GPS
-  window.addLocationHere = function() {
-    if (myLat === null) { showToast('GPS not ready yet'); return; }
+  window.addLocationHere = async function() {
     const name = document.getElementById('input-loc-name').value.trim();
     if (!name) { showToast('Enter a location name'); return; }
-    push(ref(db, LOCATIONS_REF), { name, lat: myLat, lng: myLng, active: true });
+    // Start GPS if not already running
+    if (!gpsWatchId) {
+      startGPS();
+      showToast('Getting GPS position...');
+    }
+    if (myLat === null) {
+      // Wait up to 10s for GPS
+      let waited = 0;
+      await new Promise(resolve => {
+        const check = setInterval(() => {
+          waited += 200;
+          if (myLat !== null || waited >= 10000) { clearInterval(check); resolve(); }
+        }, 200);
+      });
+    }
+    if (myLat === null) { showToast('GPS not available — check permissions'); return; }
+    await push(ref(db, LOCATIONS_REF), { name, lat: myLat, lng: myLng, active: true });
     document.getElementById('input-loc-name').value = '';
-    showToast('Location saved: ' + name);
+    showToast('📍 Location saved: ' + name);
     loadAdminLocations();
-    // Start GPS if not already
-    if (!gpsWatchId) startGPS();
   }
 
   async function loadAdminLocations() {
