@@ -288,11 +288,33 @@
   </div>
   <div id="imp-tab-sabotage" style="display:none">
     <div class="label">Sabotage</div>
-    <div style="font-size:13px; color:var(--muted); margin-bottom:16px;">Send a fake announcement. Use once per game.</div>
-    <div id="sabotage-used-notice" style="display:none; color:var(--imp); font-size:13px; margin-bottom:12px;">Sabotage already used.</div>
-    <textarea id="sabotage-text" placeholder="e.g. Attention: the task at the park has moved to the fountain."></textarea>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:4px;">Usable once per game — only when at least half of the crewmates have been eliminated.</div>
+    <div id="sabotage-unlock-notice" style="display:none; background:rgba(224,151,42,0.12); border:0.5px solid rgba(224,151,42,0.4); border-radius:var(--radius-sm); padding:10px 12px; font-size:13px; color:var(--amber); margin-bottom:12px; margin-top:8px;">🔒 Unlocks when ≥50% of crewmates are eliminated.</div>
+    <div id="sabotage-used-notice" style="display:none; background:rgba(226,75,74,0.1); border:0.5px solid rgba(226,75,74,0.3); border-radius:var(--radius-sm); padding:10px 12px; font-size:13px; color:var(--imp); margin-bottom:12px; margin-top:8px;">✓ Sabotage already used this game.</div>
     <div class="spacer"></div>
-    <button class="btn btn-danger" id="btn-sabotage" onclick="sendSabotage()">Send fake announcement</button>
+
+    <!-- Option 1: Communication -->
+    <div class="mission-card" id="sabotage-card-comms" style="margin-bottom:12px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+        <span style="font-size:20px;">📡</span>
+        <div style="font-weight:700; font-size:15px;">Communication</div>
+        <span class="pill pill-imp" style="margin-left:auto; font-size:11px;">Disable</span>
+      </div>
+      <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">Disables the Emergency Meeting button for all crewmates for <span id="sabotage-comms-dur-label">7</span> minutes.</div>
+      <button class="btn btn-danger" id="btn-sabotage-comms" onclick="sendSabotage('comms')" style="font-size:14px; padding:11px;">⚡ Activate Communication Sabotage</button>
+    </div>
+
+    <!-- Option 2: Data Breach -->
+    <div class="mission-card" id="sabotage-card-breach">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+        <span style="font-size:20px;">🔴</span>
+        <div style="font-weight:700; font-size:15px;">Data Breach</div>
+        <span class="pill pill-imp" style="margin-left:auto; font-size:11px;">Rally</span>
+      </div>
+      <div style="font-size:13px; color:var(--muted); margin-bottom:4px;">All crewmates must rally at <strong id="sabotage-rally-loc-label">—</strong> within <span id="sabotage-breach-dur-label">5</span> minutes.</div>
+      <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">If they fail, impostors get permanent hacking for the rest of the game.</div>
+      <button class="btn btn-danger" id="btn-sabotage-breach" onclick="sendSabotage('breach')" style="font-size:14px; padding:11px;">🔴 Activate Data Breach</button>
+    </div>
   </div>
   <div id="imp-tab-players" style="display:none">
     <div class="label">Alive</div>
@@ -432,6 +454,21 @@
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
       <input type="number" id="admin-live-radar-range" style="flex:1;" min="100" max="5000" />
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('radarRange','admin-live-radar-range')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Sabotage — Comms disable duration (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-sabotage-comms" style="flex:1;" min="60" max="1200" placeholder="420" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('sabotageCommsDuration','admin-live-sabotage-comms')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Sabotage — Data Breach rally time (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-sabotage-breach" style="flex:1;" min="60" max="600" placeholder="300" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('sabotageBreachDuration','admin-live-sabotage-breach')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Sabotage — Data Breach rally location</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="text" id="admin-live-sabotage-rally" style="flex:1;" placeholder="e.g. Piazza Duomo" maxlength="60" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveText('sabotageRallyLocation','admin-live-sabotage-rally')">Set</button>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Starting lives</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
@@ -728,11 +765,16 @@
   <button onclick="document.getElementById('report-banner').style.display='none'" style="background:none; border:none; color:white; font-size:18px; position:absolute; right:14px; top:50%; transform:translateY(-50%); cursor:pointer;">×</button>
 </div>
 
-<!-- Sabotage banner -->
-<div id="sabotage-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:200; background:rgba(226,75,74,0.95); padding:14px 20px; text-align:center;">
-  <div style="font-size:12px; font-weight:700; letter-spacing:0.08em; margin-bottom:4px;">SYSTEM ANNOUNCEMENT</div>
-  <div id="sabotage-message" style="font-size:14px;"></div>
-  <button onclick="document.getElementById('sabotage-banner').style.display='none'" style="background:none; border:none; color:white; font-size:18px; position:absolute; right:14px; top:50%; transform:translateY(-50%); cursor:pointer;">×</button>
+<!-- Sabotage: Communication banner (shown to crewmates) -->
+<div id="sabotage-comms-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:200; background:rgba(226,75,74,0.97); padding:12px 20px; text-align:center;">
+  <div style="font-size:11px; font-weight:700; letter-spacing:0.1em; margin-bottom:2px;">📡 COMMUNICATION SABOTAGE</div>
+  <div style="font-size:13px;">Emergency meetings disabled — <span id="comms-sabotage-timer-label">?</span> remaining</div>
+</div>
+
+<!-- Sabotage: Data Breach banner (shown to crewmates) -->
+<div id="sabotage-breach-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:200; background:rgba(155,0,0,0.97); padding:12px 20px; text-align:center;">
+  <div style="font-size:11px; font-weight:700; letter-spacing:0.1em; margin-bottom:2px;">🔴 DATA BREACH — RALLY NOW</div>
+  <div style="font-size:13px;">Go to <strong id="breach-banner-loc"></strong> — <span id="breach-sabotage-timer-label">?</span> remaining</div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -801,7 +843,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '' };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1048,6 +1090,11 @@
     updates[GAME_REF + '/state'] = 'playing';
     updates[GAME_REF + '/killCooldownUntil'] = 0;
     updates[GAME_REF + '/sabotageUsed'] = false;
+    updates[GAME_REF + '/sabotageType'] = null;
+    updates[GAME_REF + '/sabotageCommsUntil'] = null;
+    updates[GAME_REF + '/sabotageBreachUntil'] = null;
+    updates[GAME_REF + '/sabotageBreachLocation'] = null;
+    updates[GAME_REF + '/sabotageBreachResolved'] = null;
     updates[GAME_REF + '/votingActive'] = false;
     updates[GAME_REF + '/meetingActive'] = false;
     updates[GAME_REF + '/votes'] = null;
@@ -1306,9 +1353,10 @@
       renderPlayerList('players-alive', alive, currentPhase==='voting');
       renderPlayerList('players-dead', dead, currentPhase==='voting');
       const emergencyActive = !!gameState.meetingActive || !!gameState.votingActive;
+      const commsBlocked = gameState.sabotageType === 'comms' && Date.now() < (gameState.sabotageCommsUntil || 0);
       const btnEmergency = document.getElementById('btn-emergency');
       if (btnEmergency) {
-        btnEmergency.disabled = emergencyActive || isPaused;
+        btnEmergency.disabled = emergencyActive || isPaused || commsBlocked;
         btnEmergency.style.display = emergencyActive ? 'none' : 'block';
       }
       document.getElementById('tab-vote-btn').style.display = 'none';
@@ -1319,8 +1367,22 @@
       renderPlayerList('imp-players-dead', dead, true);
       renderCooldown();
       const sabotageUsed = gameState.sabotageUsed;
+      // Sabotage tab unlock check
+      const allPl = Object.values(gameState.players || {});
+      const crewPl = allPl.filter(p => p.role !== 'impostor');
+      const deadCrewPl = crewPl.filter(p => !p.alive);
+      const sabotageUnlocked = !sabotageUsed && deadCrewPl.length >= Math.floor(crewPl.length / 2);
+      document.getElementById('sabotage-unlock-notice').style.display = (!sabotageUsed && !sabotageUnlocked) ? 'block' : 'none';
       document.getElementById('sabotage-used-notice').style.display = sabotageUsed ? 'block' : 'none';
-      document.getElementById('btn-sabotage').disabled = sabotageUsed || isPaused;
+      document.getElementById('btn-sabotage-comms').disabled = sabotageUsed || !sabotageUnlocked || isPaused;
+      document.getElementById('btn-sabotage-breach').disabled = sabotageUsed || !sabotageUnlocked || isPaused;
+      // Update label durations from settings
+      const commsDurMin = Math.round((settings.sabotageCommsDuration || 420) / 60);
+      const breachDurMin = Math.round((settings.sabotageBreachDuration || 300) / 60);
+      const rallyLoc = settings.sabotageRallyLocation || '—';
+      document.getElementById('sabotage-comms-dur-label').textContent = commsDurMin;
+      document.getElementById('sabotage-breach-dur-label').textContent = breachDurMin;
+      document.getElementById('sabotage-rally-loc-label').textContent = rallyLoc;
       document.getElementById('imp-vote-tab-btn').style.display = 'none';
       const impBtnEmergency = document.getElementById('imp-btn-emergency');
       if (impBtnEmergency) {
@@ -1330,13 +1392,119 @@
       }
     }
 
-    if (gameState.sabotageMessage && gameState.sabotageVisible) {
-      document.getElementById('sabotage-message').textContent = gameState.sabotageMessage;
-      document.getElementById('sabotage-banner').style.display = 'block';
+    // === SABOTAGE EFFECTS ===
+    const now = Date.now();
+    const sType = gameState.sabotageType;
+
+    // COMMS sabotage: disable emergency button, show banner
+    const commsBanner = document.getElementById('sabotage-comms-banner');
+    const commsUntil = gameState.sabotageCommsUntil || 0;
+    const commsActive = sType === 'comms' && now < commsUntil;
+    if (commsBanner) commsBanner.style.display = commsActive ? 'block' : 'none';
+    if (commsActive) {
+      const remS = Math.ceil((commsUntil - now) / 1000);
+      const remLabel = remS >= 60 ? Math.ceil(remS/60)+'m' : remS+'s';
+      const lbl = document.getElementById('comms-sabotage-timer-label');
+      if (lbl) lbl.textContent = remLabel;
     }
+    // Block emergency button for crewmates during comms sabotage
+    const btnEmergencyComms = document.getElementById('btn-emergency');
+    if (btnEmergencyComms && commsActive) {
+      btnEmergencyComms.disabled = true;
+      btnEmergencyComms.title = 'Communications disabled by sabotage';
+    }
+
+    // BREACH sabotage: show banner, after timeout grant permanent hacking
+    const breachBanner = document.getElementById('sabotage-breach-banner');
+    const breachUntil = gameState.sabotageBreachUntil || 0;
+    const breachActive = sType === 'breach' && now < breachUntil && !gameState.sabotageBreachResolved;
+    const breachExpiredUnresolved = sType === 'breach' && now >= breachUntil && !gameState.sabotageBreachResolved;
+    if (breachBanner) breachBanner.style.display = (breachActive || breachExpiredUnresolved) ? 'block' : 'none';
+    if (breachActive) {
+      const remS = Math.ceil((breachUntil - now) / 1000);
+      const remLabel = remS >= 60 ? Math.ceil(remS/60)+'m' : remS+'s';
+      const lbl = document.getElementById('breach-sabotage-timer-label');
+      if (lbl) lbl.textContent = remLabel;
+      const locLbl = document.getElementById('breach-banner-loc');
+      if (locLbl) locLbl.textContent = gameState.sabotageBreachLocation || '—';
+    }
+    if (breachExpiredUnresolved) {
+      const lbl2 = document.getElementById('breach-sabotage-timer-label');
+      if (lbl2) lbl2.textContent = '⚠ time up — impostors are hacking';
+      const locLbl2 = document.getElementById('breach-banner-loc');
+      if (locLbl2) locLbl2.textContent = gameState.sabotageBreachLocation || '—';
+      // Trigger permanent hacking async (only for impostor, deduplicated)
+      if (myRole === 'impostor') activateBreachHacking();
+    }
+
     if (myRole === 'crewmate') checkPendingKills();
     checkShieldHit();
   }
+
+  // Async helper: activate permanent hacking after Data Breach expires unresolved.
+  // Deduped with a module-level flag to avoid re-triggering on every renderGame call.
+  let _breachHackingPending = false;
+  async function activateBreachHacking() {
+    if (_breachHackingPending) return;
+    _breachHackingPending = true;
+    try {
+      const hackSnap = await get(ref(db, HACKING_REF));
+      const hackVal = hackSnap.exists() ? hackSnap.val() : {};
+      if (hackVal.permanent) return; // already activated by another impostor
+      const { ids, maxDist } = computeNearestTwo();
+      await set(ref(db, HACKING_REF), {
+        active: true,
+        endTime: Date.now() + 86400000, // 24h = effectively permanent for the game
+        cooldownUntil: 0,
+        activatedBy: myPlayerId,
+        tracked: ids.length ? ids : [],
+        dynamicRadius: ids.length ? Math.ceil(maxDist * 1.15) : 200,
+        permanent: true
+      });
+    } finally {
+      // Reset flag after a delay so it can retry if the set failed
+      setTimeout(() => { _breachHackingPending = false; }, 10000);
+    }
+  }
+
+  // Tick sabotage banners every second so countdowns update in real time
+  setInterval(() => {
+    const gs = gameState;
+    if (!gs) return;
+    const now = Date.now();
+    const sType = gs.sabotageType;
+    // Comms banner tick
+    const commsBanner = document.getElementById('sabotage-comms-banner');
+    const commsUntil = gs.sabotageCommsUntil || 0;
+    const commsActive = sType === 'comms' && now < commsUntil;
+    if (commsBanner) commsBanner.style.display = commsActive ? 'block' : 'none';
+    if (commsActive) {
+      const remS = Math.ceil((commsUntil - now) / 1000);
+      const lbl = document.getElementById('comms-sabotage-timer-label');
+      if (lbl) lbl.textContent = remS >= 60 ? Math.ceil(remS/60)+'m' : remS+'s';
+      // Keep emergency button blocked for crewmates
+      if (myRole === 'crewmate') {
+        const btn = document.getElementById('btn-emergency');
+        if (btn) { btn.disabled = true; btn.title = 'Communications disabled by sabotage'; }
+      }
+    }
+    // Breach banner tick
+    const breachBanner = document.getElementById('sabotage-breach-banner');
+    const breachUntil = gs.sabotageBreachUntil || 0;
+    const breachActive2 = sType === 'breach' && now < breachUntil && !gs.sabotageBreachResolved;
+    const breachExpired2 = sType === 'breach' && now >= breachUntil && !gs.sabotageBreachResolved;
+    if (breachBanner) breachBanner.style.display = (breachActive2 || breachExpired2) ? 'block' : 'none';
+    if (breachActive2) {
+      const remS = Math.ceil((breachUntil - now) / 1000);
+      const lbl = document.getElementById('breach-sabotage-timer-label');
+      if (lbl) lbl.textContent = remS >= 60 ? Math.ceil(remS/60)+'m' : remS+'s';
+    }
+    if (breachExpired2) {
+      const lbl = document.getElementById('breach-sabotage-timer-label');
+      if (lbl) lbl.textContent = '⚠ time up — impostors are hacking';
+      if (myRole === 'impostor') activateBreachHacking();
+    }
+  }, 1000);
 
   let lastShieldHit = 0;
   function checkShieldHit() {
@@ -2584,7 +2752,13 @@
 
   window.callEmergency = async function() {
     if (gameState.meetingActive || gameState.votingActive) return;
+    // Block if comms sabotage active
     const now = Date.now();
+    if (gameState.sabotageType === 'comms' && now < (gameState.sabotageCommsUntil || 0)) {
+      const rem = Math.ceil(((gameState.sabotageCommsUntil || 0) - now) / 1000);
+      showToast(`📡 Communications disabled — ${rem}s remaining`, 3000);
+      return;
+    }
     const cooldownUntil = gameState.emergencyCooldownUntil || 0;
     if (now < cooldownUntil) {
       const rem = Math.ceil((cooldownUntil - now) / 1000);
@@ -2827,16 +3001,37 @@
     checkWinConditions();
   }
 
-  window.sendSabotage = async function() {
-    const msg = document.getElementById('sabotage-text').value.trim();
-    if (!msg) { showToast('Write a message first'); return; }
-    await update(ref(db), {
-      [GAME_REF+'/sabotageUsed']: true,
-      [GAME_REF+'/sabotageMessage']: msg,
-      [GAME_REF+'/sabotageVisible']: true
-    });
-    showToast('Announcement sent');
-    setTimeout(() => update(ref(db), { [GAME_REF+'/sabotageVisible']: false }), 8000);
+  window.sendSabotage = async function(type) {
+    // Check already used
+    if (gameState.sabotageUsed) { showToast('Sabotage already used'); return; }
+    // Check unlock condition: >= half of non-impostor players eliminated
+    const allPlayers = Object.values(gameState.players || {});
+    const crewmates = allPlayers.filter(p => p.role !== 'impostor');
+    const deadCrew = crewmates.filter(p => !p.alive);
+    if (deadCrew.length < Math.floor(crewmates.length / 2)) {
+      showToast('Not unlocked yet — eliminate more crewmates'); return;
+    }
+    const now = Date.now();
+    if (type === 'comms') {
+      const dur = (settings.sabotageCommsDuration || 420) * 1000;
+      await update(ref(db), {
+        [GAME_REF+'/sabotageUsed']: true,
+        [GAME_REF+'/sabotageType']: 'comms',
+        [GAME_REF+'/sabotageCommsUntil']: now + dur
+      });
+      showToast('📡 Communication sabotage activated');
+    } else if (type === 'breach') {
+      const rallyLoc = settings.sabotageRallyLocation || '—';
+      const dur = (settings.sabotageBreachDuration || 300) * 1000;
+      await update(ref(db), {
+        [GAME_REF+'/sabotageUsed']: true,
+        [GAME_REF+'/sabotageType']: 'breach',
+        [GAME_REF+'/sabotageBreachUntil']: now + dur,
+        [GAME_REF+'/sabotageBreachLocation']: rallyLoc,
+        [GAME_REF+'/sabotageBreachResolved']: false
+      });
+      showToast('🔴 Data Breach activated — rally at ' + rallyLoc);
+    }
   }
 
 
@@ -3360,6 +3555,9 @@
     document.getElementById('admin-live-tasks').value = settings.tasksPerPlayer || 3;
     document.getElementById('admin-live-face').value = settings.faceDetection !== undefined ? settings.faceDetection : 1;
     document.getElementById('admin-live-photo-review').value = settings.photoReview || 0;
+    document.getElementById('admin-live-sabotage-comms').value = settings.sabotageCommsDuration || 420;
+    document.getElementById('admin-live-sabotage-breach').value = settings.sabotageBreachDuration || 300;
+    document.getElementById('admin-live-sabotage-rally').value = settings.sabotageRallyLocation || '';
     // Update pause button
     const isPaused = gameState?.paused || false;
     const pauseBtn = document.getElementById('admin-float-pause');
@@ -3427,6 +3625,9 @@
       [GAME_REF+'/winner']: null, [GAME_REF+'/endReason']: null,
       [GAME_REF+'/votes']: null, [GAME_REF+'/votingActive']: false,
       [GAME_REF+'/meetingActive']: false, [GAME_REF+'/sabotageUsed']: false,
+      [GAME_REF+'/sabotageType']: null, [GAME_REF+'/sabotageCommsUntil']: null,
+      [GAME_REF+'/sabotageBreachUntil']: null, [GAME_REF+'/sabotageBreachLocation']: null,
+      [GAME_REF+'/sabotageBreachResolved']: null,
       [GAME_REF+'/emergencyCalledBy']: null, [GAME_REF+'/evidence']: null,
       [GAME_REF+'/pendingKills']: null, [GAME_REF+'/pendingEvidence']: null,
       [GAME_REF+'/forceLobby']: Date.now() // signal all clients to return to lobby
@@ -3757,6 +3958,14 @@
     showToast(key + ' updated to ' + val);
   }
 
+  window.saveLiveText = async function(key, inputId) {
+    const val = document.getElementById(inputId).value.trim();
+    if (!val) { showToast('Enter a value'); return; }
+    settings[key] = val;
+    await update(ref(db), { [SETTINGS_REF+'/'+key]: val });
+    showToast('Updated: ' + val);
+  }
+
   function listenReports() {
     onValue(ref(db, GAME_REF+'/reports'), (snap) => {
       if (!snap.exists() || !isAdmin) return;
@@ -3805,6 +4014,11 @@
       [GAME_REF+'/votingActive']: false,
       [GAME_REF+'/meetingActive']: false,
       [GAME_REF+'/sabotageUsed']: false,
+      [GAME_REF+'/sabotageType']: null,
+      [GAME_REF+'/sabotageCommsUntil']: null,
+      [GAME_REF+'/sabotageBreachUntil']: null,
+      [GAME_REF+'/sabotageBreachLocation']: null,
+      [GAME_REF+'/sabotageBreachResolved']: null,
       [GAME_REF+'/emergencyCalledBy']: null,
       [GAME_REF+'/evidence']: null,
       [GAME_REF+'/pendingKills']: null,
