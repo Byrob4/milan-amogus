@@ -773,7 +773,7 @@
   const MISSIONS_REF = 'missions';
   const QUIZZES_REF = 'quizzes';
   let allQuizzes = {};
-  const LOCATIONS_REF = 'locations';
+  const LOCATIONS_REF = 'radarLocations';
   let allLocations = [];
   async function loadLocations() {
     const snap = await get(ref(db, LOCATIONS_REF));
@@ -1037,9 +1037,9 @@
     updates[GAME_REF + '/evidence'] = null;
     updates[GAME_REF + '/coopSessions'] = null;
     await update(ref(db), updates);
-    // Force own transition (admin)
-    // Close admin screen first, then check role
-    adminGoBack();
+    // Close admin overlay if open
+    closeOverlay('overlay-admin-float');
+    // Force own transition to role reveal (don't go back to lobby)
     setTimeout(async () => {
       const s = await get(ref(db, GAME_REF));
       if (s.exists()) {
@@ -2993,6 +2993,17 @@
 
 
 
+  let mapRefreshInterval = null;
+  function startMapRefresh(canvasId, legendId) {
+    if (mapRefreshInterval) clearInterval(mapRefreshInterval);
+    startGPS();
+    drawRadar(canvasId, legendId);
+    mapRefreshInterval = setInterval(() => drawRadar(canvasId, legendId), 3000);
+  }
+  function stopMapRefresh() {
+    if (mapRefreshInterval) { clearInterval(mapRefreshInterval); mapRefreshInterval = null; }
+  }
+
   window.switchTab = function(tab) {
     ['tasks','map','players','vote'].forEach(t => {
       const el = document.getElementById('tab-'+t);
@@ -3005,7 +3016,9 @@
       renderVoting();
     }
     if (tab==='map') {
-      setTimeout(() => { drawRadar('radar-canvas', 'radar-legend'); }, 100);
+      startMapRefresh('radar-canvas', 'radar-legend');
+    } else {
+      stopMapRefresh();
     }
   }
 
@@ -3021,9 +3034,7 @@
       renderVoting();
     }
     if (tab==='tasks') renderImpTasks();
-    if (tab==='map') {
-      setTimeout(() => { drawRadar('imp-radar-canvas', 'imp-radar-legend'); }, 100);
-    }
+    if (tab==='map') { startMapRefresh('imp-radar-canvas', 'imp-radar-legend'); } else { stopMapRefresh(); }
   }
 
   const _origGoToMain = window.goToMain;
@@ -3155,13 +3166,17 @@
   }
 
   window.adminGoBack = function() {
-    const target = adminPreviousScreen || 'screen-lobby';
-    showScreen(target);
-    // Re-trigger appropriate listener
-    if (target === 'screen-lobby') {
-      // nothing needed, lobby listener is active
-    } else if (target === 'screen-main' || target === 'screen-impostor') {
-      if (gameState) renderGame();
+    // Decide where to go based on current game state, not a stored screen
+    const state = gameState?.state;
+    if (state === 'playing' && roleRevealed) {
+      if (myRole === 'impostor') { showScreen('screen-impostor'); }
+      else { showScreen('screen-main'); }
+      renderGame();
+    } else if (state === 'ended') {
+      showResult();
+    } else {
+      showScreen('screen-lobby');
+      listenLobby();
     }
   }
 
