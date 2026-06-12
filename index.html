@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Among Us — City</title>
   <link rel="manifest" href="/manifest.json" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -77,6 +80,12 @@
     textarea { width: 100%; background: var(--bg3); border: 0.5px solid var(--border2); border-radius: var(--radius-sm); padding: 12px; color: var(--text); font-size: 14px; min-height: 100px; outline: none; resize: none; }
     video { width: 100%; border-radius: var(--radius-sm); display: block; }
     canvas { display: none; }
+    #map-container { height: calc(100vh - 180px); min-height: 300px; border-radius: var(--radius); overflow: hidden; }
+    .leaflet-container { background: #1a1a2e; }
+    .map-location-marker { background: var(--crew); border: 2px solid #fff; border-radius: 50%; width: 14px; height: 14px; }
+    .map-my-marker { background: var(--imp); border: 2px solid #fff; border-radius: 50%; width: 16px; height: 16px; animation: pulse 1.5s infinite; }
+    .leaflet-popup-content-wrapper { background: var(--bg2); color: var(--text); border: 0.5px solid var(--border2); }
+    .leaflet-popup-tip { background: var(--bg2); }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
     .pulse { animation: pulse 1.5s infinite; }
   </style>
@@ -203,6 +212,7 @@
   <div id="paused-notice" style="display:none; background:rgba(224,151,42,0.12); border:0.5px solid rgba(224,151,42,0.4); border-radius:var(--radius); padding:12px 16px; font-size:13px; color:var(--amber); margin-bottom:16px; text-align:center; font-weight:600;">⏸ Game paused by admin</div>
   <div class="tab-bar">
     <div class="tab active" onclick="switchTab('tasks')">Tasks</div>
+    <div class="tab" onclick="switchTab('map')">Map</div>
     <div class="tab" onclick="switchTab('players')">Players</div>
     <div class="tab" onclick="switchTab('vote')" id="tab-vote-btn" style="display:none">Vote</div>
   </div>
@@ -224,6 +234,10 @@
     <div class="spacer"></div>
     <div class="label">Eliminated</div>
     <div class="card" id="players-dead"></div>
+  </div>
+  <div id="tab-map" style="display:none">
+    <div id="map-container"></div>
+    <div style="font-size:12px; color:var(--muted); margin-top:8px; text-align:center;" id="map-gps-status">Acquiring GPS...</div>
   </div>
   <div id="tab-vote" style="display:none">
     <div class="label">Who is the impostor?</div>
@@ -247,6 +261,7 @@
   <div class="tab-bar">
     <div class="tab active" onclick="switchImpTab('kill')">Kill</div>
     <div class="tab" onclick="switchImpTab('tasks')">Tasks</div>
+    <div class="tab" onclick="switchImpTab('map')">Map</div>
     <div class="tab" onclick="switchImpTab('sabotage')">Sabotage</div>
     <div class="tab" onclick="switchImpTab('players')">Players</div>
     <div class="tab" onclick="switchImpTab('vote')" id="imp-vote-tab-btn" style="display:none">Vote</div>
@@ -263,6 +278,10 @@
   <div id="imp-tab-tasks" style="display:none">
     <div style="font-size:13px; color:var(--muted); margin-bottom:12px; padding:8px; background:rgba(226,75,74,0.08); border-radius:var(--radius-sm);">Your tasks don't count toward crew progress — but completing them helps you blend in.</div>
     <div id="imp-tasks-list"></div>
+  </div>
+  <div id="imp-tab-map" style="display:none">
+    <div id="imp-map-container" style="height:calc(100vh - 220px); min-height:300px; border-radius:var(--radius); overflow:hidden;"></div>
+    <div style="font-size:12px; color:var(--muted); margin-top:8px; text-align:center;" id="imp-map-gps-status">Acquiring GPS...</div>
   </div>
   <div id="imp-tab-sabotage" style="display:none">
     <div class="label">Sabotage</div>
@@ -405,6 +424,34 @@
       <div class="spacer"></div>
       <button class="btn btn-danger" onclick="resetGame()">Reset game</button>
     </div>
+  </div>
+</div>
+
+<!-- OVERLAY: Add location -->
+<div class="overlay" id="overlay-add-location">
+  <div class="overlay-box">
+    <h3 style="margin-bottom:16px;">Add location</h3>
+    <div class="label">Name</div>
+    <input type="text" id="location-name" placeholder="e.g. Park" />
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="useCurrentPosition()">📍 Use current position</button>
+    <div id="location-coords" style="font-size:13px; color:var(--muted); margin-top:8px; text-align:center;"></div>
+    <input type="hidden" id="location-lat" />
+    <input type="hidden" id="location-lng" />
+    <div class="spacer"></div>
+    <button class="btn btn-primary" id="btn-save-location" onclick="saveLocation()" disabled>Save location</button>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="closeOverlay('overlay-add-location')">Cancel</button>
+  </div>
+</div>
+
+<!-- OVERLAY: QR Code -->
+<div class="overlay" id="overlay-qr">
+  <div class="overlay-box" style="text-align:center;">
+    <h3 id="qr-location-name" style="margin-bottom:16px;"></h3>
+    <div id="qr-code-display" style="display:inline-block; background:#fff; padding:12px; border-radius:8px; margin-bottom:12px;"></div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:16px;" id="qr-url-display"></div>
+    <button class="btn btn-ghost" onclick="closeOverlay('overlay-qr')">Close</button>
   </div>
 </div>
 
@@ -699,9 +746,23 @@
       <div class="label" style="color:var(--imp);">⚠ Reports</div>
       <div id="admin-float-reports-list"></div>
     </div>
+      </div><!-- end admin-missions-sub -->
+      <div id="admin-locations-sub" style="display:none">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div class="label" style="margin:0">Locations</div>
+          <button class="btn btn-primary" style="width:auto; padding:6px 14px; font-size:13px;" onclick="showAddLocation()">+ Add</button>
+        </div>
+        <div id="admin-locations-list"></div>
+      </div>
+    </div><!-- end admin-float-tab-missions -->
     </div><!-- end admin-float-tab-controls -->
 
     <div id="admin-float-tab-missions" style="display:none">
+      <div class="tab-bar" style="margin-bottom:12px;">
+        <div class="tab active" onclick="switchAdminMissionsTab('missions')">Missions</div>
+        <div class="tab" onclick="switchAdminMissionsTab('locations')">Locations</div>
+      </div>
+      <div id="admin-missions-sub">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
         <div class="label" style="margin:0">Missions</div>
         <div style="display:flex; gap:6px;">
@@ -782,6 +843,8 @@
   const MISSIONS_REF = 'missions';
   const QUIZZES_REF = 'quizzes';
   let allQuizzes = {};
+  const LOCATIONS_REF = 'locations';
+  let allLocations = [];
 
   let myPlayerId = null;
   let isAdmin = false;
@@ -2822,21 +2885,115 @@
     setTimeout(() => update(ref(db), { [GAME_REF+'/sabotageVisible']: false }), 8000);
   }
 
+  // switchTab and switchImpTab defined in map section above
+
+
+  // ============ MAP & LOCATIONS ============
+  let mapInstance = null;
+  let impMapInstance = null;
+  let myMarker = null;
+  let impMyMarker = null;
+  let locationMarkers = [];
+  let watchId = null;
+  let myLatLng = null;
+
+  // LOCATIONS_REF already declared above
+
+  async function loadLocations() {
+    const snap = await get(ref(db, LOCATIONS_REF));
+    if (snap.exists()) {
+      allLocations = Object.entries(snap.val()).map(([id, l]) => ({ id, ...l }));
+    } else {
+      allLocations = [];
+    }
+  }
+
+  function initMap(containerId) {
+    if (containerId === 'map-container' && mapInstance) return mapInstance;
+    if (containerId === 'imp-map-container' && impMapInstance) return impMapInstance;
+    const map = L.map(containerId, { zoomControl: true, attributionControl: false }).setView([45.4642, 9.1900], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    if (containerId === 'map-container') mapInstance = map;
+    else impMapInstance = map;
+    return map;
+  }
+
+  function renderMapLocations(map) {
+    // Clear old markers
+    locationMarkers.forEach(m => map.removeLayer(m));
+    locationMarkers = [];
+    const active = allLocations.filter(l => l.active !== false && l.lat && l.lng);
+    active.forEach(loc => {
+      const icon = L.divIcon({ className: '', html: '<div class="map-location-marker"></div>', iconSize: [14,14], iconAnchor: [7,7] });
+      const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(map);
+      marker.bindPopup(`<b>${loc.name}</b>`);
+      locationMarkers.push(marker);
+    });
+    if (active.length > 0) {
+      const bounds = L.latLngBounds(active.map(l => [l.lat, l.lng]));
+      map.fitBounds(bounds, { padding: [40, 40] });
+    }
+  }
+
+  function startGPS() {
+    if (!navigator.geolocation) return;
+    if (watchId) navigator.geolocation.clearWatch(watchId);
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        myLatLng = [pos.coords.latitude, pos.coords.longitude];
+        updateMyPositionOnMap();
+        const statusEl = document.getElementById('map-gps-status');
+        const impStatusEl = document.getElementById('imp-map-gps-status');
+        if (statusEl) statusEl.textContent = 'GPS active';
+        if (impStatusEl) impStatusEl.textContent = 'GPS active';
+      },
+      (err) => {
+        const statusEl = document.getElementById('map-gps-status');
+        const impStatusEl = document.getElementById('imp-map-gps-status');
+        if (statusEl) statusEl.textContent = 'GPS unavailable';
+        if (impStatusEl) impStatusEl.textContent = 'GPS unavailable';
+      },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    );
+  }
+
+  function updateMyPositionOnMap() {
+    if (!myLatLng) return;
+    const myIcon = L.divIcon({ className: '', html: '<div class="map-my-marker"></div>', iconSize: [16,16], iconAnchor: [8,8] });
+    if (mapInstance) {
+      if (myMarker) myMarker.setLatLng(myLatLng);
+      else { myMarker = L.marker(myLatLng, { icon: myIcon }).addTo(mapInstance); myMarker.bindPopup('You'); }
+    }
+    if (impMapInstance) {
+      if (impMyMarker) impMyMarker.setLatLng(myLatLng);
+      else { impMyMarker = L.marker(myLatLng, { icon: myIcon }).addTo(impMapInstance); impMyMarker.bindPopup('You'); }
+    }
+  }
+
   window.switchTab = function(tab) {
-    ['tasks','players','vote'].forEach(t => {
+    ['tasks','map','players','vote'].forEach(t => {
       const el = document.getElementById('tab-'+t);
       if (el) el.style.display = t===tab ? 'block' : 'none';
-      const btn = document.querySelector(`[onclick="switchTab('${t}')"]`);
+      const btn = document.querySelector(`[onclick="switchTab('\${t}')"]`);
       if (btn) btn.classList.toggle('active', t===tab);
     });
     if (tab==='vote') {
       document.getElementById('tab-vote-btn').style.display = '';
       renderVoting();
     }
+    if (tab==='map') {
+      setTimeout(async () => {
+        await loadLocations();
+        const map = initMap('map-container');
+        renderMapLocations(map);
+        updateMyPositionOnMap();
+        map.invalidateSize();
+      }, 100);
+    }
   }
 
   window.switchImpTab = function(tab) {
-    ['kill','tasks','sabotage','players','vote'].forEach(t => {
+    ['kill','tasks','map','sabotage','players','vote'].forEach(t => {
       const el = document.getElementById('imp-tab-'+t);
       if (el) el.style.display = t===tab ? 'block' : 'none';
       const btn = document.querySelector(`[onclick="switchImpTab('${t}')"]`);
@@ -2847,6 +3004,113 @@
       renderVoting();
     }
     if (tab==='tasks') renderImpTasks();
+    if (tab==='map') {
+      setTimeout(async () => {
+        await loadLocations();
+        const map = initMap('imp-map-container');
+        renderMapLocations(map);
+        updateMyPositionOnMap();
+        map.invalidateSize();
+      }, 100);
+    }
+  }
+
+  // Start GPS when game begins
+  const _origGoToMain = window.goToMain;
+  window.goToMain = function() {
+    startGPS();
+    if (_origGoToMain) _origGoToMain();
+  }
+
+  // ============ LOCATION ADMIN ============
+  window.switchAdminMissionsTab = function(tab) {
+    document.getElementById('admin-missions-sub').style.display = tab === 'missions' ? 'block' : 'none';
+    document.getElementById('admin-locations-sub').style.display = tab === 'locations' ? 'block' : 'none';
+    const btns = document.querySelectorAll('[onclick*="switchAdminMissionsTab"]');
+    btns.forEach(b => b.classList.toggle('active', b.getAttribute('onclick').includes("'"+tab+"'")));
+    if (tab === 'locations') loadAdminLocations();
+  }
+
+  async function loadAdminLocations() {
+    await loadLocations();
+    const el = document.getElementById('admin-locations-list');
+    if (!el) return;
+    if (!allLocations.length) { el.innerHTML = '<div style="color:var(--muted); font-size:13px;">No locations yet.</div>'; return; }
+    el.innerHTML = allLocations.map(loc => {
+      const isActive = loc.active !== false;
+      return `<div style="background:var(--bg3); border-radius:var(--radius-sm); padding:10px; margin-bottom:8px; \${!isActive?'opacity:0.5;':''}">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
+          <div style="flex:1;">
+            <div style="font-weight:600; font-size:14px;">\${loc.name}</div>
+            <div style="font-size:11px; color:var(--muted); margin-top:2px;">\${loc.lat ? loc.lat.toFixed(5)+', '+loc.lng.toFixed(5) : 'No GPS'}</div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">
+            <button onclick="toggleLocationActive('\${loc.id}', \${isActive})" style="background:\${isActive?'var(--green)':'var(--bg2)'}; color:#fff; border:none; border-radius:4px; padding:3px 8px; font-size:11px; cursor:pointer;">\${isActive?'ON':'OFF'}</button>
+            <button onclick="showLocationQR('\${loc.id}')" style="background:none; border:none; color:var(--crew); cursor:pointer; font-size:12px; padding:2px;">QR</button>
+            <button onclick="deleteLocation('\${loc.id}')" style="background:none; border:none; color:var(--imp); cursor:pointer; font-size:16px;">×</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  window.showAddLocation = function() {
+    document.getElementById('location-name').value = '';
+    document.getElementById('location-lat').value = '';
+    document.getElementById('location-lng').value = '';
+    document.getElementById('location-coords').textContent = '';
+    document.getElementById('btn-save-location').disabled = true;
+    document.getElementById('overlay-add-location').classList.add('active');
+  }
+
+  window.useCurrentPosition = function() {
+    if (!navigator.geolocation) { showToast('Geolocation not available'); return; }
+    const coordsEl = document.getElementById('location-coords');
+    coordsEl.textContent = 'Getting position...';
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        document.getElementById('location-lat').value = pos.coords.latitude;
+        document.getElementById('location-lng').value = pos.coords.longitude;
+        coordsEl.textContent = pos.coords.latitude.toFixed(5) + ', ' + pos.coords.longitude.toFixed(5);
+        document.getElementById('btn-save-location').disabled = false;
+      },
+      () => { coordsEl.textContent = 'Could not get position'; }
+    );
+  }
+
+  window.saveLocation = async function() {
+    const name = document.getElementById('location-name').value.trim();
+    const lat = parseFloat(document.getElementById('location-lat').value);
+    const lng = parseFloat(document.getElementById('location-lng').value);
+    if (!name) { showToast('Enter a name'); return; }
+    if (!lat || !lng) { showToast('Use current position first'); return; }
+    await push(ref(db, LOCATIONS_REF), { name, lat, lng, active: true });
+    closeOverlay('overlay-add-location');
+    showToast('Location saved');
+    loadAdminLocations();
+  }
+
+  window.toggleLocationActive = async function(id, current) {
+    await update(ref(db, LOCATIONS_REF+'/'+id), { active: !current });
+    loadAdminLocations();
+  }
+
+  window.deleteLocation = async function(id) {
+    await remove(ref(db, LOCATIONS_REF+'/'+id));
+    showToast('Location deleted');
+    loadAdminLocations();
+  }
+
+  window.showLocationQR = function(id) {
+    const loc = allLocations.find(l => l.id === id);
+    if (!loc) return;
+    const url = window.location.origin + '?location=' + encodeURIComponent(loc.name);
+    document.getElementById('qr-location-name').textContent = loc.name;
+    document.getElementById('qr-url-display').textContent = url;
+    const qrEl = document.getElementById('qr-code-display');
+    qrEl.innerHTML = '';
+    new QRCode(qrEl, { text: url, width: 200, height: 200, colorDark: '#000', colorLight: '#fff' });
+    document.getElementById('overlay-qr').classList.add('active');
   }
 
   window.leaveGame = async function() {
