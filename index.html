@@ -6,6 +6,7 @@
   <title>Among Us — City</title>
   <link rel="manifest" href="/manifest.json" />
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -217,6 +218,7 @@
     <div class="progress-bar" style="margin-bottom:16px;"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
     <div id="tasks-list"></div>
     <div class="spacer"></div>
+    <button class="btn btn-primary" onclick="openQRScanner()" style="margin-bottom:8px;">📷 Scan location QR</button>
     <div class="spacer"></div>
     <button class="btn btn-ghost" onclick="openCoopJoin()">👥 Join a co-op</button>
     <div class="spacer"></div>
@@ -549,6 +551,32 @@
     <button class="btn btn-primary" id="btn-save-location" onclick="saveLocation()" disabled>Save location</button>
     <div class="spacer"></div>
     <button class="btn btn-ghost" onclick="closeOverlay('overlay-add-location')">Cancel</button>
+  </div>
+</div>
+
+<!-- OVERLAY: Quest result (after QR scan) -->
+<div class="overlay" id="overlay-quest-result">
+  <div class="overlay-box">
+    <h3 style="margin-bottom:4px;" id="quest-result-title"></h3>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:16px;" id="quest-result-loc"></div>
+    <div id="quest-result-content"></div>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="closeOverlay('overlay-quest-result')">Close</button>
+  </div>
+</div>
+
+<!-- OVERLAY: QR Scanner -->
+<div class="overlay" id="overlay-qr-scanner">
+  <div class="overlay-box" style="text-align:center;">
+    <h3 style="margin-bottom:8px;">📷 Scan location QR</h3>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">Point the camera at a location QR code</div>
+    <div style="position:relative; width:100%; max-width:320px; margin:0 auto 12px;">
+      <video id="qr-scanner-video" style="width:100%; border-radius:var(--radius-sm); display:block;" autoplay playsinline muted></video>
+      <canvas id="qr-scanner-canvas" style="display:none;"></canvas>
+      <div style="position:absolute; inset:0; border:2px solid var(--crew); border-radius:var(--radius-sm); pointer-events:none; box-shadow:inset 0 0 0 4px rgba(55,138,221,0.15);"></div>
+    </div>
+    <div id="qr-scanner-status" style="font-size:13px; color:var(--muted); margin-bottom:12px;">Scanning…</div>
+    <button class="btn btn-ghost" onclick="closeQRScanner()">Cancel</button>
   </div>
 </div>
 
@@ -1525,6 +1553,107 @@
     _breachResolveOpen = false;
     closeOverlay('overlay-breach-resolve');
     showToast('✗ Breach failed — hacking activated');
+  }
+
+  let _qrScannerStream = null;
+  let _qrScanInterval = null;
+
+  window.openQRScanner = async function() {
+    document.getElementById('overlay-qr-scanner').classList.add('active');
+    document.getElementById('qr-scanner-status').textContent = 'Starting camera…';
+    try {
+      _qrScannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const video = document.getElementById('qr-scanner-video');
+      video.srcObject = _qrScannerStream;
+      await video.play();
+      document.getElementById('qr-scanner-status').textContent = 'Scanning…';
+      const canvas = document.getElementById('qr-scanner-canvas');
+      const ctx = canvas.getContext('2d');
+      _qrScanInterval = setInterval(() => {
+        if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+        if (code?.data) {
+          const url = code.data;
+          try {
+            const u = new URL(url);
+            const loc = u.searchParams.get('location');
+            if (loc) {
+              clearInterval(_qrScanInterval);
+              closeQRScanner();
+              assignQuestFromLocation(decodeURIComponent(loc));
+              return;
+            }
+          } catch(e) {}
+          document.getElementById('qr-scanner-status').textContent = '⚠ Not a valid location QR';
+        }
+      }, 250);
+    } catch(e) {
+      document.getElementById('qr-scanner-status').textContent = '⚠ Camera not available — ' + (e.message || 'permission denied');
+    }
+  }
+
+  window.closeQRScanner = function() {
+    if (_qrScanInterval) { clearInterval(_qrScanInterval); _qrScanInterval = null; }
+    if (_qrScannerStream) { _qrScannerStream.getTracks().forEach(t => t.stop()); _qrScannerStream = null; }
+    document.getElementById('overlay-qr-scanner').classList.remove('active');
+  }
+
+  async function assignQuestFromLocation(locName) {
+    if (!myPlayerId || !gameState) { showToast('Not in a game'); return; }
+    if (myRole === 'impostor') { showToast("You're an impostor — no quests for you 😈"); return; }
+    await loadMissions();
+    const playerSnap = await get(ref(db, GAME_REF+'/players/'+myPlayerId));
+    if (!playerSnap.exists()) { showToast('Player data not found'); return; }
+    const player = playerSnap.val();
+    const existingMissions = Object.values(player.missions || {});
+
+    document.getElementById('quest-result-loc').textContent = '📍 ' + locName;
+
+    // Already have an active mission here
+    const alreadyHere = existingMissions.find(m => m.location?.toLowerCase() === locName.toLowerCase() && !m.done);
+    if (alreadyHere) {
+      document.getElementById('quest-result-title').textContent = 'Quest already active';
+      document.getElementById('quest-result-content').innerHTML = `
+        <div class="mission-card">
+          <div style="font-weight:600; font-size:15px; margin-bottom:6px;">${alreadyHere.description}</div>
+          <div style="font-size:13px; color:var(--muted);">${alreadyHere.proofType==='photo'?'📷 Photo required':alreadyHere.proofType==='quiz'?'🧠 Quiz':'🔢 Code required'}</div>
+        </div>`;
+      document.getElementById('overlay-quest-result').classList.add('active');
+      return;
+    }
+
+    // All missions at this location already done
+    const doneHere = existingMissions.filter(m => m.location?.toLowerCase() === locName.toLowerCase() && m.done);
+    const pool = allMissions.filter(m =>
+      m.active !== false &&
+      m.location?.toLowerCase() === locName.toLowerCase() &&
+      !doneHere.map(d => d.description).includes(m.description)
+    );
+    if (!pool.length) {
+      document.getElementById('quest-result-title').textContent = '✓ All quests complete here!';
+      document.getElementById('quest-result-content').innerHTML = '<div style="font-size:14px; color:var(--green); text-align:center; padding:8px 0;">You\'ve finished every quest at this location.</div>';
+      document.getElementById('overlay-quest-result').classList.add('active');
+      return;
+    }
+
+    // Assign a random quest
+    const picked = pool[Math.floor(Math.random() * pool.length)];
+    const { id: _id, ...missionData } = picked;
+    const newKey = 'm' + Date.now();
+    await update(ref(db, GAME_REF+'/players/'+myPlayerId+'/missions'), {
+      [newKey]: { ...missionData, done: false }
+    });
+    document.getElementById('quest-result-title').textContent = '🎯 New quest unlocked!';
+    document.getElementById('quest-result-content').innerHTML = `
+      <div class="mission-card">
+        <div style="font-weight:600; font-size:15px; margin-bottom:6px;">${picked.description}</div>
+        <div style="font-size:13px; color:var(--muted);">${picked.proofType==='photo'?'📷 Photo required':picked.proofType==='quiz'?'🧠 Quiz':'🔢 Code required'}</div>
+      </div>`;
+    document.getElementById('overlay-quest-result').classList.add('active');
   }
 
   let _settingsListenerAttached = false;
