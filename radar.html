@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Radar — Among Us City</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0e0e12; --bg2: #16161e; --bg3: #1e1e28;
+      --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.15);
+      --text: #f0f0f0; --muted: #888;
+      --crew: #378ADD; --imp: #E24B4A; --green: #3a9e6a; --amber: #e0972a;
+      --radius: 12px; --radius-sm: 8px;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; padding: 20px; overflow-x: hidden;
+    }
+    .logo { font-size: 12px; font-weight: 600; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; margin-bottom: 12px; }
+    .map-wrap { position: relative; width: 100%; max-width: 420px; aspect-ratio: 1; }
+    svg#radar-svg { width: 100%; height: 100%; display: block; }
+    .status-bar { width: 100%; max-width: 420px; margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .btn { display: block; width: 100%; padding: 13px; border-radius: var(--radius-sm); font-size: 15px; font-weight: 600; border: none; cursor: pointer; transition: opacity 0.15s; }
+    .btn:active { opacity: 0.8; }
+    .btn-danger { background: var(--imp); color: #fff; }
+    .btn-ghost { background: var(--bg3); color: var(--text); border: 0.5px solid var(--border2); }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .pill { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+    .info-box { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 12px 14px; font-size: 13px; color: var(--muted); }
+    .danger-banner { display: none; background: rgba(226,75,74,0.95); border-radius: var(--radius); padding: 12px 14px; text-align: center; font-weight: 700; font-size: 14px; }
+    .cooldown-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+    .cooldown-fill { height: 100%; background: var(--imp); border-radius: 2px; transition: width 0.5s linear; }
+    .screen { display: none; flex-direction: column; align-items: center; width: 100%; max-width: 420px; }
+    .screen.active { display: flex; }
+    input[type="text"], input[type="password"] {
+      width: 100%; background: var(--bg3); border: 0.5px solid var(--border2);
+      border-radius: var(--radius-sm); padding: 12px 14px; color: var(--text);
+      font-size: 15px; outline: none;
+    }
+    .spacer { height: 16px; }
+    .label { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; align-self: flex-start; }
+    h2 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+    /* Admin location panel */
+    .loc-card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 12px; margin-bottom: 8px; width: 100%; display: flex; justify-content: space-between; align-items: center; }
+    .toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--bg2); border: 0.5px solid var(--border2); border-radius: var(--radius-sm); padding: 12px 20px; font-size: 14px; font-weight: 500; z-index: 999; transition: transform 0.3s ease; white-space: nowrap; }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .pulse { animation: pulse 1s infinite; }
+  </style>
+</head>
+<body>
+
+<!-- SCREEN: Join -->
+<div class="screen active" id="screen-join">
+  <div class="logo" style="margin-bottom:24px;">Among Us · Radar</div>
+  <h2>Enter your name</h2>
+  <div class="spacer"></div>
+  <input type="text" id="input-name" placeholder="Your name" maxlength="20" />
+  <div class="spacer"></div>
+  <div class="btn btn-ghost" style="cursor:pointer; text-align:center;" onclick="joinRadar()">Open radar</div>
+  <div class="spacer"></div>
+  <div class="btn btn-ghost" style="cursor:pointer; text-align:center;" onclick="showAdminJoin()">Admin — manage locations</div>
+</div>
+
+<!-- SCREEN: Admin join -->
+<div class="screen" id="screen-admin-join">
+  <div class="logo" style="margin-bottom:24px;">Among Us · Radar · Admin</div>
+  <h2>Admin access</h2>
+  <div class="spacer"></div>
+  <div class="label">Password</div>
+  <input type="password" id="input-admin-pw" placeholder="Password" />
+  <div class="spacer"></div>
+  <button class="btn btn-danger" onclick="adminLogin()">Login</button>
+  <div class="spacer"></div>
+  <button class="btn btn-ghost" onclick="showScreen('screen-join')">Back</button>
+</div>
+
+<!-- SCREEN: Admin locations -->
+<div class="screen" id="screen-admin">
+  <div class="logo" style="margin-bottom:12px;">Admin · Locations</div>
+  <div style="width:100%; max-width:420px;">
+    <button class="btn btn-danger" style="margin-bottom:12px;" onclick="addLocationHere()">📍 Add location here (GPS)</button>
+    <div class="label">Location name</div>
+    <input type="text" id="input-loc-name" placeholder="e.g. Park" style="margin-bottom:12px;" />
+    <div id="admin-locations-list"></div>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="showScreen('screen-join')">Back to radar</button>
+  </div>
+</div>
+
+<!-- SCREEN: Radar -->
+<div class="screen" id="screen-radar">
+  <div class="logo">Among Us · Radar</div>
+  <div class="danger-banner pulse" id="danger-banner">⚠ Danger — someone is watching you</div>
+  <div class="spacer" style="height:8px;"></div>
+  <div class="map-wrap">
+    <svg id="radar-svg" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+      <!-- Background circle -->
+      <circle cx="200" cy="200" r="190" fill="#0a0a0f" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>
+      <!-- Grid rings -->
+      <circle cx="200" cy="200" r="140" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+      <circle cx="200" cy="200" r="90" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+      <circle cx="200" cy="200" r="45" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+      <!-- Cross lines -->
+      <line x1="200" y1="15" x2="200" y2="385" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <line x1="15" y1="200" x2="385" y2="200" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <!-- Dynamic dots rendered by JS -->
+      <g id="radar-locations"></g>
+      <g id="radar-players"></g>
+    </svg>
+  </div>
+  <div class="status-bar">
+    <div class="danger-banner pulse" id="danger-banner-2" style="display:none;">⚠ Danger — someone is watching you</div>
+    <div class="info-box" id="gps-status">📡 Acquiring GPS...</div>
+    <!-- Impostor radar button (only shown to impostor) -->
+    <div id="radar-power-wrap" style="display:none;">
+      <button class="btn btn-danger" id="btn-radar" onclick="activateRadar()">🔴 Activate Radar</button>
+      <div id="radar-cooldown-text" style="font-size:13px; color:var(--muted); margin-top:4px; text-align:center;"></div>
+      <div class="cooldown-bar"><div class="cooldown-fill" id="radar-cooldown-fill" style="width:0%"></div></div>
+    </div>
+    <button class="btn btn-ghost" onclick="showScreen('screen-join')">← Back</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, set, get, onValue, update, push, remove } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDC4iZM_e8KAyw8dr-9BLQsh7cyA8cL5bM",
+    authDomain: "milan-amogus.firebaseapp.com",
+    databaseURL: "https://milan-amogus-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "milan-amogus",
+    storageBucket: "milan-amogus.firebasestorage.app",
+    messagingSenderId: "893548811938",
+    appId: "1:893548811938:web:956f1dd71b2d90512da9fb"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  const GAME_REF = 'game';
+  const LOCATIONS_REF = 'radarLocations';
+  const POSITIONS_REF = 'radarPositions';
+  const RADAR_REF = 'radarActive';
+  const SETTINGS_REF = 'settings';
+
+  let myPlayerId = null;
+  let myName = null;
+  let myRole = null;
+  let myColor = '#378ADD';
+  let isAdmin = false;
+  let gameState = null;
+  let locations = [];
+  let positions = {};
+  let radarActive = false;
+  let radarEndTime = 0;
+  let myLat = null;
+  let myLng = null;
+  let gpsWatchId = null;
+  let tickInterval = null;
+  let mapBounds = null; // { minLat, maxLat, minLng, maxLng }
+
+  function getPlayerId() {
+    let id = localStorage.getItem('amogus_player_id');
+    if (!id) { id = 'p_' + Math.random().toString(36).slice(2,10); localStorage.setItem('amogus_player_id', id); }
+    return id;
+  }
+
+  function showToast(msg, dur=2500) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), dur);
+  }
+
+  window.showScreen = function(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+
+  window.showAdminJoin = function() { showScreen('screen-admin-join'); }
+
+  window.adminLogin = async function() {
+    const pw = document.getElementById('input-admin-pw').value;
+    const snap = await get(ref(db, SETTINGS_REF+'/adminPassword'));
+    const correct = snap.exists() ? snap.val() : 'admin123';
+    if (pw !== correct) { showToast('Wrong password'); return; }
+    isAdmin = true;
+    showScreen('screen-admin');
+    loadAdminLocations();
+  }
+
+  window.joinRadar = async function() {
+    const name = document.getElementById('input-name').value.trim();
+    if (!name) { showToast('Enter your name'); return; }
+    myPlayerId = getPlayerId();
+    myName = name;
+    // Get role from game state
+    const snap = await get(ref(db, GAME_REF+'/players/'+myPlayerId));
+    if (snap.exists()) {
+      const p = snap.val();
+      myRole = p.role;
+      myColor = p.color || '#378ADD';
+    }
+    showScreen('screen-radar');
+    startGPS();
+    listenRadar();
+    if (myRole === 'impostor') {
+      document.getElementById('radar-power-wrap').style.display = 'block';
+    }
+  }
+
+  function startGPS() {
+    if (!navigator.geolocation) {
+      document.getElementById('gps-status').textContent = '⚠ GPS not available';
+      return;
+    }
+    gpsWatchId = navigator.geolocation.watchPosition(
+      pos => {
+        myLat = pos.coords.latitude;
+        myLng = pos.coords.longitude;
+        document.getElementById('gps-status').textContent = '📡 GPS active';
+        // Push position to Firebase (throttled — only if changed significantly)
+        pushMyPosition();
+      },
+      err => {
+        document.getElementById('gps-status').textContent = '⚠ GPS error: ' + err.message;
+      },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    );
+    // Also tick every 10s to push position even if no movement
+    tickInterval = setInterval(() => {
+      if (myLat !== null) pushMyPosition();
+      renderMap();
+      updateRadarCooldown();
+    }, 10000);
+  }
+
+  let lastPushTime = 0;
+  function pushMyPosition() {
+    if (!myPlayerId || myLat === null) return;
+    const now = Date.now();
+    if (now - lastPushTime < 8000) return; // max once per 8s
+    lastPushTime = now;
+    set(ref(db, POSITIONS_REF+'/'+myPlayerId), {
+      lat: myLat, lng: myLng,
+      name: myName, color: myColor,
+      role: myRole, updatedAt: now
+    });
+  }
+
+  function listenRadar() {
+    // Listen to all positions
+    onValue(ref(db, POSITIONS_REF), snap => {
+      positions = snap.exists() ? snap.val() : {};
+      renderMap();
+    });
+    // Listen to locations
+    onValue(ref(db, LOCATIONS_REF), snap => {
+      locations = snap.exists() ? Object.entries(snap.val()).map(([id,v])=>({id,...v})) : [];
+      computeMapBounds();
+      renderMap();
+    });
+    // Listen to radar active state
+    onValue(ref(db, RADAR_REF), snap => {
+      if (!snap.exists()) { radarActive = false; return; }
+      const r = snap.val();
+      radarEndTime = r.endTime || 0;
+      radarActive = Date.now() < radarEndTime;
+      const banner = document.getElementById('danger-banner');
+      const banner2 = document.getElementById('danger-banner-2');
+      if (radarActive && myRole !== 'impostor') {
+        banner.style.display = 'block';
+        banner2.style.display = 'block';
+        if (navigator.vibrate) navigator.vibrate([300,100,300]);
+      } else {
+        banner.style.display = 'none';
+        banner2.style.display = 'none';
+      }
+      renderMap();
+    });
+  }
+
+  function computeMapBounds() {
+    // Compute bounding box from locations + current position
+    const pts = [...locations.map(l => ({ lat: l.lat, lng: l.lng }))];
+    if (myLat !== null) pts.push({ lat: myLat, lng: myLng });
+    if (pts.length === 0) { mapBounds = null; return; }
+    let minLat = pts[0].lat, maxLat = pts[0].lat;
+    let minLng = pts[0].lng, maxLng = pts[0].lng;
+    pts.forEach(p => {
+      if (p.lat < minLat) minLat = p.lat;
+      if (p.lat > maxLat) maxLat = p.lat;
+      if (p.lng < minLng) minLng = p.lng;
+      if (p.lng > maxLng) maxLng = p.lng;
+    });
+    // Add 20% padding
+    const latPad = (maxLat - minLat) * 0.2 || 0.002;
+    const lngPad = (maxLng - minLng) * 0.2 || 0.002;
+    mapBounds = {
+      minLat: minLat - latPad, maxLat: maxLat + latPad,
+      minLng: minLng - lngPad, maxLng: maxLng + lngPad
+    };
+  }
+
+  function geoToSVG(lat, lng) {
+    // Map lat/lng to SVG circle (radius 180, center 200,200)
+    if (!mapBounds) return { x: 200, y: 200 };
+    const R = 175;
+    const cx = 200, cy = 200;
+    const nx = (lng - mapBounds.minLng) / (mapBounds.maxLng - mapBounds.minLng); // 0..1
+    const ny = (lat - mapBounds.minLat) / (mapBounds.maxLat - mapBounds.minLat); // 0..1
+    const x = cx + (nx - 0.5) * 2 * R;
+    const y = cy - (ny - 0.5) * 2 * R; // invert Y
+    return { x, y };
+  }
+
+  function renderMap() {
+    const locGroup = document.getElementById('radar-locations');
+    const playerGroup = document.getElementById('radar-players');
+    if (!locGroup || !playerGroup) return;
+    locGroup.innerHTML = '';
+    playerGroup.innerHTML = '';
+
+    // Draw locations (always visible)
+    locations.filter(l => l.active !== false).forEach(loc => {
+      const { x, y } = geoToSVG(loc.lat, loc.lng);
+      locGroup.innerHTML += `
+        <g>
+          <circle cx="${x}" cy="${y}" r="8" fill="#e0972a" opacity="0.9"/>
+          <polygon points="${x},${y-14} ${x-5},${y-6} ${x+5},${y-6}" fill="#e0972a"/>
+          <text x="${x}" y="${y+22}" text-anchor="middle" font-size="11" fill="#e0972a" font-family="system-ui">${escSvg(loc.name)}</text>
+        </g>`;
+    });
+
+    // Draw my position (always)
+    if (myLat !== null) {
+      const { x, y } = geoToSVG(myLat, myLng);
+      playerGroup.innerHTML += makeDot(x, y, myColor, myName, true);
+    }
+
+    // Draw other players (only if impostor AND radar active)
+    if (myRole === 'impostor' && radarActive) {
+      Object.entries(positions).forEach(([pid, p]) => {
+        if (pid === myPlayerId) return;
+        const { x, y } = geoToSVG(p.lat, p.lng);
+        playerGroup.innerHTML += makeDot(x, y, p.color || '#378ADD', p.name, false);
+      });
+    }
+  }
+
+  function makeDot(x, y, color, name, isMe) {
+    const r = isMe ? 10 : 8;
+    const ring = isMe ? `<circle cx="${x}" cy="${y}" r="${r+4}" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.4"/>` : '';
+    return `<g>
+      ${ring}
+      <circle cx="${x}" cy="${y}" r="${r}" fill="${color}" opacity="0.95"/>
+      <text x="${x}" y="${y+r+12}" text-anchor="middle" font-size="11" fill="${color}" font-family="system-ui" font-weight="600">${escSvg(name)}</text>
+    </g>`;
+  }
+
+  function escSvg(s) {
+    return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  window.activateRadar = async function() {
+    const snap = await get(ref(db, RADAR_REF));
+    const now = Date.now();
+    if (snap.exists()) {
+      const r = snap.val();
+      if (r.cooldownUntil && now < r.cooldownUntil) {
+        showToast('Radar on cooldown'); return;
+      }
+    }
+    const settingsSnap = await get(ref(db, SETTINGS_REF+'/radarCooldown'));
+    const cooldown = settingsSnap.exists() ? settingsSnap.val() : 180;
+    await set(ref(db, RADAR_REF), {
+      active: true,
+      endTime: now + 60000,
+      cooldownUntil: now + cooldown * 1000,
+      activatedBy: myPlayerId
+    });
+    showToast('Radar active — 60s');
+  }
+
+  function updateRadarCooldown() {
+    get(ref(db, RADAR_REF)).then(snap => {
+      const now = Date.now();
+      const btn = document.getElementById('btn-radar');
+      const txt = document.getElementById('radar-cooldown-text');
+      const fill = document.getElementById('radar-cooldown-fill');
+      if (!snap.exists()) {
+        if (btn) { btn.disabled = false; btn.textContent = '🔴 Activate Radar'; }
+        if (txt) txt.textContent = 'Ready';
+        if (fill) fill.style.width = '0%';
+        return;
+      }
+      const r = snap.val();
+      const radarOn = now < (r.endTime || 0);
+      const onCooldown = now < (r.cooldownUntil || 0);
+      const cooldownTotal = (r.cooldownUntil||0) - (r.endTime||0);
+      const cooldownRem = Math.max(0, (r.cooldownUntil||0) - now);
+      const pct = cooldownTotal > 0 ? Math.round((cooldownRem/cooldownTotal)*100) : 0;
+      if (radarOn) {
+        const rem = Math.ceil(((r.endTime||0) - now)/1000);
+        if (btn) { btn.disabled = true; btn.textContent = `🔴 Radar active — ${rem}s`; }
+        if (fill) fill.style.width = '100%';
+      } else if (onCooldown) {
+        const rem = Math.ceil(cooldownRem/1000);
+        if (btn) { btn.disabled = true; btn.textContent = `Radar ready in ${rem}s`; }
+        if (fill) fill.style.width = pct + '%';
+      } else {
+        if (btn) { btn.disabled = false; btn.textContent = '🔴 Activate Radar'; }
+        if (txt) txt.textContent = 'Ready';
+        if (fill) fill.style.width = '0%';
+      }
+    });
+  }
+
+  // Admin: add location using current GPS
+  window.addLocationHere = function() {
+    if (myLat === null) { showToast('GPS not ready yet'); return; }
+    const name = document.getElementById('input-loc-name').value.trim();
+    if (!name) { showToast('Enter a location name'); return; }
+    push(ref(db, LOCATIONS_REF), { name, lat: myLat, lng: myLng, active: true });
+    document.getElementById('input-loc-name').value = '';
+    showToast('Location saved: ' + name);
+    loadAdminLocations();
+    // Start GPS if not already
+    if (!gpsWatchId) startGPS();
+  }
+
+  async function loadAdminLocations() {
+    // Need GPS for adding — start it
+    if (!gpsWatchId) startGPS();
+    const snap = await get(ref(db, LOCATIONS_REF));
+    const el = document.getElementById('admin-locations-list');
+    if (!snap.exists()) { el.innerHTML = '<div style="color:var(--muted); font-size:13px;">No locations yet.</div>'; return; }
+    const locs = Object.entries(snap.val());
+    el.innerHTML = locs.map(([id, l]) => `
+      <div class="loc-card">
+        <div>
+          <div style="font-weight:600; font-size:14px;">${escSvg(l.name)}</div>
+          <div style="font-size:12px; color:var(--muted);">${l.lat?.toFixed(5)}, ${l.lng?.toFixed(5)}</div>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <button onclick="toggleLocation('${id}', ${l.active !== false})" style="background:${l.active!==false?'var(--green)':'var(--bg3)'}; color:#fff; border:none; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer;">${l.active!==false?'ON':'OFF'}</button>
+          <button onclick="deleteLocation('${id}')" style="background:none; border:none; color:var(--imp); font-size:18px; cursor:pointer;">×</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  window.toggleLocation = async function(id, current) {
+    await update(ref(db, LOCATIONS_REF+'/'+id), { active: !current });
+    loadAdminLocations();
+  }
+
+  window.deleteLocation = async function(id) {
+    await remove(ref(db, LOCATIONS_REF+'/'+id));
+    loadAdminLocations();
+  }
+
+  // Interval for radar cooldown display
+  setInterval(updateRadarCooldown, 500);
+</script>
+</body>
+</html>
