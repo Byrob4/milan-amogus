@@ -288,12 +288,10 @@
   </div>
   <div id="imp-tab-sabotage" style="display:none">
     <div class="label">Sabotage</div>
-    <div style="font-size:13px; color:var(--muted); margin-bottom:4px;">Usable once per game — only when at least half of the crewmates have been eliminated.</div>
-    <div id="sabotage-unlock-notice" style="display:none; background:rgba(224,151,42,0.12); border:0.5px solid rgba(224,151,42,0.4); border-radius:var(--radius-sm); padding:10px 12px; font-size:13px; color:var(--amber); margin-bottom:12px; margin-top:8px;">🔒 Unlocks when ≥50% of crewmates are eliminated.</div>
-    <div id="sabotage-used-notice" style="display:none; background:rgba(226,75,74,0.1); border:0.5px solid rgba(226,75,74,0.3); border-radius:var(--radius-sm); padding:10px 12px; font-size:13px; color:var(--imp); margin-bottom:12px; margin-top:8px;">✓ Sabotage already used this game.</div>
+    <div id="sabotage-used-notice" style="display:none; background:rgba(226,75,74,0.1); border:0.5px solid rgba(226,75,74,0.3); border-radius:var(--radius-sm); padding:10px 12px; font-size:13px; color:var(--imp); margin-bottom:12px; margin-top:4px;">✓ Sabotage already used this game.</div>
     <div class="spacer"></div>
 
-    <!-- Option 1: Communication -->
+    <!-- Option 1: Communication (always available) -->
     <div class="mission-card" id="sabotage-card-comms" style="margin-bottom:12px;">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
         <span style="font-size:20px;">📡</span>
@@ -304,7 +302,7 @@
       <button class="btn btn-danger" id="btn-sabotage-comms" onclick="sendSabotage('comms')" style="font-size:14px; padding:11px;">⚡ Activate Communication Sabotage</button>
     </div>
 
-    <!-- Option 2: Data Breach -->
+    <!-- Option 2: Data Breach (locked until X players dead) -->
     <div class="mission-card" id="sabotage-card-breach">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
         <span style="font-size:20px;">🔴</span>
@@ -312,7 +310,8 @@
         <span class="pill pill-imp" style="margin-left:auto; font-size:11px;">Rally</span>
       </div>
       <div style="font-size:13px; color:var(--muted); margin-bottom:4px;">All crewmates must rally at <strong id="sabotage-rally-loc-label">—</strong> within <span id="sabotage-breach-dur-label">5</span> minutes.</div>
-      <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">If they fail, impostors get permanent hacking for the rest of the game.</div>
+      <div style="font-size:13px; color:var(--muted); margin-bottom:8px;">If they fail, impostors get permanent hacking for the rest of the game.</div>
+      <div id="sabotage-breach-unlock-notice" style="display:none; background:rgba(224,151,42,0.12); border:0.5px solid rgba(224,151,42,0.4); border-radius:var(--radius-sm); padding:8px 10px; font-size:12px; color:var(--amber); margin-bottom:8px;">🔒 Unlocks when <span id="sabotage-breach-unlock-label">?</span> players have been eliminated.</div>
       <button class="btn btn-danger" id="btn-sabotage-breach" onclick="sendSabotage('breach')" style="font-size:14px; padding:11px;">🔴 Activate Data Breach</button>
     </div>
   </div>
@@ -469,6 +468,11 @@
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
       <input type="text" id="admin-live-sabotage-rally" style="flex:1;" placeholder="e.g. Piazza Duomo" maxlength="60" />
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveText('sabotageRallyLocation','admin-live-sabotage-rally')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Sabotage — Data Breach unlock after N kills</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-sabotage-breach-unlock" style="flex:1;" min="1" max="20" placeholder="1" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('sabotageBreachUnlockKills','admin-live-sabotage-breach-unlock')">Set</button>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Starting lives</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
@@ -843,7 +847,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '' };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1 };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1367,15 +1371,21 @@
       renderPlayerList('imp-players-dead', dead, true);
       renderCooldown();
       const sabotageUsed = gameState.sabotageUsed;
-      // Sabotage tab unlock check
+      // Comms: always available (unless already used or paused)
+      // Breach: unlocks when >= sabotageBreachUnlockKills dead players (default 1)
       const allPl = Object.values(gameState.players || {});
-      const crewPl = allPl.filter(p => p.role !== 'impostor');
-      const deadCrewPl = crewPl.filter(p => !p.alive);
-      const sabotageUnlocked = !sabotageUsed && deadCrewPl.length >= Math.floor(crewPl.length / 2);
-      document.getElementById('sabotage-unlock-notice').style.display = (!sabotageUsed && !sabotageUnlocked) ? 'block' : 'none';
+      const deadPl = allPl.filter(p => !p.alive && p.role !== 'impostor');
+      const breachThreshold = settings.sabotageBreachUnlockKills || 1;
+      const breachUnlocked = !sabotageUsed && deadPl.length >= breachThreshold;
       document.getElementById('sabotage-used-notice').style.display = sabotageUsed ? 'block' : 'none';
-      document.getElementById('btn-sabotage-comms').disabled = sabotageUsed || !sabotageUnlocked || isPaused;
-      document.getElementById('btn-sabotage-breach').disabled = sabotageUsed || !sabotageUnlocked || isPaused;
+      document.getElementById('btn-sabotage-comms').disabled = sabotageUsed || isPaused;
+      document.getElementById('btn-sabotage-breach').disabled = sabotageUsed || !breachUnlocked || isPaused;
+      const breachUnlockNotice = document.getElementById('sabotage-breach-unlock-notice');
+      if (breachUnlockNotice) {
+        breachUnlockNotice.style.display = (!sabotageUsed && !breachUnlocked) ? 'block' : 'none';
+        const lbl = document.getElementById('sabotage-breach-unlock-label');
+        if (lbl) lbl.textContent = breachThreshold;
+      }
       // Update label durations from settings
       const commsDurMin = Math.round((settings.sabotageCommsDuration || 420) / 60);
       const breachDurMin = Math.round((settings.sabotageBreachDuration || 300) / 60);
@@ -3002,15 +3012,7 @@
   }
 
   window.sendSabotage = async function(type) {
-    // Check already used
     if (gameState.sabotageUsed) { showToast('Sabotage already used'); return; }
-    // Check unlock condition: >= half of non-impostor players eliminated
-    const allPlayers = Object.values(gameState.players || {});
-    const crewmates = allPlayers.filter(p => p.role !== 'impostor');
-    const deadCrew = crewmates.filter(p => !p.alive);
-    if (deadCrew.length < Math.floor(crewmates.length / 2)) {
-      showToast('Not unlocked yet — eliminate more crewmates'); return;
-    }
     const now = Date.now();
     if (type === 'comms') {
       const dur = (settings.sabotageCommsDuration || 420) * 1000;
@@ -3021,6 +3023,11 @@
       });
       showToast('📡 Communication sabotage activated');
     } else if (type === 'breach') {
+      // Double-check unlock condition server-side
+      const allPlayers = Object.values(gameState.players || {});
+      const deadCrew = allPlayers.filter(p => !p.alive && p.role !== 'impostor');
+      const threshold = settings.sabotageBreachUnlockKills || 1;
+      if (deadCrew.length < threshold) { showToast('Data Breach not unlocked yet'); return; }
       const rallyLoc = settings.sabotageRallyLocation || '—';
       const dur = (settings.sabotageBreachDuration || 300) * 1000;
       await update(ref(db), {
@@ -3558,6 +3565,7 @@
     document.getElementById('admin-live-sabotage-comms').value = settings.sabotageCommsDuration || 420;
     document.getElementById('admin-live-sabotage-breach').value = settings.sabotageBreachDuration || 300;
     document.getElementById('admin-live-sabotage-rally').value = settings.sabotageRallyLocation || '';
+    document.getElementById('admin-live-sabotage-breach-unlock').value = settings.sabotageBreachUnlockKills || 1;
     // Update pause button
     const isPaused = gameState?.paused || false;
     const pauseBtn = document.getElementById('admin-float-pause');
