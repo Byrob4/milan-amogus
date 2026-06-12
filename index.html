@@ -413,6 +413,16 @@
       <input type="number" id="admin-live-reroll" style="flex:1;" min="10" max="300" />
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('rerollCooldown','admin-live-reroll')">Set</button>
     </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Hacking duration (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-hacking-dur" style="flex:1;" min="30" max="600" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('hackingDuration','admin-live-hacking-dur')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Hacking cooldown (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-hacking-cd" style="flex:1;" min="30" max="900" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('hackingCooldown','admin-live-hacking-cd')">Set</button>
+    </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Quiz — min correct (out of 5)</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
       <input type="number" id="admin-live-quiz-pass" style="flex:1;" min="1" max="5" />
@@ -1109,6 +1119,7 @@
   }
 
   function listenGame() {
+    if (!hackingListenerAttached) { listenHacking(); hackingListenerAttached = true; startGPS(); }
     onValue(ref(db, GAME_REF), (snap) => {
       if (!snap.exists()) return;
       gameState = snap.val();
@@ -2909,10 +2920,8 @@
       showToast('Hacking on cooldown'); return;
     }
     if (!myLatLng) { showToast('GPS not ready'); return; }
-    const durSnap = await get(ref(db, SETTINGS_REF+'/hackingDuration'));
-    const duration = durSnap.exists() ? durSnap.val() : 120;
-    const cdSnap = await get(ref(db, SETTINGS_REF+'/hackingCooldown'));
-    const cooldown = cdSnap.exists() ? cdSnap.val() : 180;
+    const duration = settings.hackingDuration || 120;
+    const cooldown = settings.hackingCooldown || 180;
     const { ids, maxDist } = computeNearestTwo();
     if (!ids.length) { showToast('No players to track'); return; }
     const endTime = now + duration*1000;
@@ -3189,11 +3198,11 @@
     if (tab==='map') { startMapRefresh('imp-radar-canvas', 'imp-radar-legend'); } else { stopMapRefresh(); }
   }
 
+  let hackingListenerAttached = false;
   const _origGoToMain = window.goToMain;
   window.goToMain = function() {
     startGPS();
-    listenHacking();
-    // Periodic position push so everyone is trackable even without opening map
+    if (!hackingListenerAttached) { listenHacking(); hackingListenerAttached = true; }
     setInterval(() => { if (myLatLng) pushMyPosition(); }, 10000);
     if (_origGoToMain) _origGoToMain();
   }
@@ -3303,6 +3312,10 @@
     document.getElementById('admin-live-review').value = settings.reviewDuration || 30;
     document.getElementById('admin-live-reveal-delay').value = settings.killRevealDelay || 60;
     document.getElementById('admin-live-reroll').value = settings.rerollCooldown || 60;
+    const hd = document.getElementById('admin-live-hacking-dur');
+    const hc = document.getElementById('admin-live-hacking-cd');
+    if (hd) hd.value = settings.hackingDuration || 120;
+    if (hc) hc.value = settings.hackingCooldown || 180;
     document.getElementById('admin-live-quiz-pass').value = settings.quizPassScore || 4;
     document.getElementById('admin-live-radar-range').value = settings.radarRange || 500;
     document.getElementById('admin-live-lives').value = settings.lives || 2;
