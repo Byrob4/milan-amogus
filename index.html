@@ -214,6 +214,7 @@
   </div>
   <div id="tab-tasks">
     <div class="label">Mission progress</div>
+    <div id="spy-hint" style="display:none; background:rgba(55,138,221,0.10); border:0.5px solid rgba(55,138,221,0.4); border-radius:var(--radius); padding:11px 14px; margin-bottom:14px; font-size:13px; color:#85B7EB;">🛰 <b>Spy:</b> scan the <span id="spy-hint-loc">Assembly Point</span> QR to reveal every player on a live radar.</div>
     <div class="progress-bar" style="margin-bottom:16px;"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
     <div id="tasks-list"></div>
     <div class="spacer"></div>
@@ -521,6 +522,19 @@
       </select>
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('stalkerEnabled','admin-live-stalker')">Set</button>
     </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">🛰 Spy role</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <select id="admin-live-spy" style="flex:1;">
+        <option value="1">Enabled</option>
+        <option value="0">Disabled</option>
+      </select>
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('spyEnabled','admin-live-spy')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Spy — Assembly Point location name</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="text" id="admin-live-spy-loc" style="flex:1;" placeholder="Assembly Point" maxlength="60" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveText('spyLocationName','admin-live-spy-loc')">Set</button>
+    </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Game password (players must enter to join)</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:16px;">
       <input type="text" id="admin-live-game-password" style="flex:1;" placeholder="Empty = no password" />
@@ -612,6 +626,17 @@
   </div>
 </div>
 
+<!-- OVERLAY: Spy full radar -->
+<div class="overlay" id="overlay-spy-radar">
+  <div class="overlay-box" style="text-align:center; max-width:560px; width:96%;">
+    <h3 style="margin-bottom:4px; color:#378ADD;">🛰 Spy Radar</h3>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Live positions of every player. Closing this revokes access until you rescan.</div>
+    <canvas id="spy-radar-canvas" style="border-radius:50%; display:block; margin:0 auto 10px; max-width:100%;"></canvas>
+    <div id="spy-radar-legend" style="text-align:left; max-height:140px; overflow-y:auto; margin-bottom:12px;"></div>
+    <button class="btn btn-danger" onclick="closeSpyRadar()">Close radar</button>
+  </div>
+</div>
+
 <!-- OVERLAY: QR Code -->
 <div class="overlay" id="overlay-qr">
   <div class="overlay-box" style="text-align:center;">
@@ -647,6 +672,7 @@
       <option value="audio">Audio recording</option>
       <option value="none">No proof</option>
       <option value="quiz">Quiz</option>
+      <option value="wordle">Wordle</option>
     </select>
     <div id="mission-code-wrapper" style="display:none">
       <div class="spacer"></div>
@@ -808,6 +834,23 @@
   </div>
 </div>
 
+<!-- OVERLAY: Wordle -->
+<div class="overlay" id="overlay-wordle">
+  <div class="overlay-box" style="text-align:center; max-width:360px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <h3 style="margin:0;">🟩 Wordle</h3>
+      <button onclick="closeWordleTemp()" style="background:none; border:none; color:var(--muted); font-size:22px; cursor:pointer; line-height:1;" title="Close (resume later)">×</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:14px;">Guess the 5-letter English word in 6 tries. Wrong word? A new one each round.</div>
+    <div id="wordle-grid" style="display:grid; grid-template-rows:repeat(6,1fr); gap:6px; justify-content:center; margin-bottom:14px;"></div>
+    <input id="wordle-input" type="text" maxlength="5" autocomplete="off" autocapitalize="characters" inputmode="latin"
+      style="width:100%; text-align:center; letter-spacing:8px; text-transform:uppercase; font-size:20px; font-weight:700; padding:10px; margin-bottom:8px;" placeholder="• • • • •" />
+    <div id="wordle-msg" style="font-size:13px; min-height:18px; margin-bottom:10px; color:var(--amber);"></div>
+    <button class="btn btn-primary" id="wordle-guess-btn" onclick="wordleSubmitGuess()" style="margin-bottom:8px;">Guess</button>
+    <button class="btn btn-ghost" onclick="closeWordleTemp()">Close (resume later)</button>
+  </div>
+</div>
+
 <!-- OVERLAY: Report player -->
 <div class="overlay" id="overlay-report">
   <div class="overlay-box">
@@ -927,7 +970,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true, hitShieldDuration: 60 };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true, hitShieldDuration: 60, spyEnabled: true, spyLocationName: 'Assembly Point' };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1162,6 +1205,7 @@
       updates[GAME_REF + '/players/' + id + '/lives'] = settings.lives || 2;
       updates[GAME_REF + '/players/' + id + '/missions'] = {};
       updates[GAME_REF + '/players/' + id + '/isStalker'] = false;
+      updates[GAME_REF + '/players/' + id + '/isSpy'] = false;
       updates[GAME_REF + '/players/' + id + '/stalkTarget'] = null;
       updates[GAME_REF + '/players/' + id + '/stalkAlert'] = null;
       updates[GAME_REF + '/players/' + id + '/killCooldownUntil'] = 0;
@@ -1173,9 +1217,18 @@
     const crewmateIds = shuffledIds.filter(id => !impostorIds.has(id));
     const stalkerSnap = await get(ref(db, SETTINGS_REF + '/stalkerEnabled'));
     const stalkerOn = !stalkerSnap.exists() || (stalkerSnap.val() !== 0 && stalkerSnap.val() !== false);
+    let stalkerId = null;
     if (stalkerOn && crewmateIds.length >= 1) {
-      const stalkerId = crewmateIds[Math.floor(Math.random() * crewmateIds.length)];
+      stalkerId = crewmateIds[Math.floor(Math.random() * crewmateIds.length)];
       updates[GAME_REF + '/players/' + stalkerId + '/isStalker'] = true;
+    }
+    // Assign spy to a different random crewmate (not impostor, not stalker)
+    const spySnap = await get(ref(db, SETTINGS_REF + '/spyEnabled'));
+    const spyOn = !spySnap.exists() || (spySnap.val() !== 0 && spySnap.val() !== false);
+    const spyCandidates = crewmateIds.filter(id => id !== stalkerId);
+    if (spyOn && spyCandidates.length >= 1) {
+      const spyId = spyCandidates[Math.floor(Math.random() * spyCandidates.length)];
+      updates[GAME_REF + '/players/' + spyId + '/isSpy'] = true;
     }
     updates[GAME_REF + '/impostorCount'] = impostorCount;
     updates[GAME_REF + '/questsToWin'] = settings.questsToWin || 3;
@@ -1226,14 +1279,18 @@
     const role = myRole;
     const me = gameState?.players?.[myPlayerId];
     const amStalker = me?.isStalker;
-    document.getElementById('role-icon').textContent = role === 'impostor' ? '🔴' : (amStalker ? '🕵️' : '🔵');
-    document.getElementById('role-name').textContent = role === 'impostor' ? 'Impostor' : (amStalker ? 'Stalker' : 'Crewmate');
+    const amSpy = me?.isSpy;
+    const spyLoc = settings.spyLocationName || 'Assembly Point';
+    document.getElementById('role-icon').textContent = role === 'impostor' ? '🔴' : (amStalker ? '🕵️' : amSpy ? '🛰' : '🔵');
+    document.getElementById('role-name').textContent = role === 'impostor' ? 'Impostor' : (amStalker ? 'Stalker' : amSpy ? 'Spy' : 'Crewmate');
     document.getElementById('role-desc').textContent = role === 'impostor'
       ? 'Eliminate crewmates. Survive the vote. Win.'
       : (amStalker
           ? 'You are a crewmate with a secret: pick someone to follow. If they get attacked, you\'ll see the photo.'
+          : amSpy
+          ? 'You are a crewmate with a secret: scan the "' + spyLoc + '" QR to reveal every player on a live radar — but only while the screen stays open.'
           : 'Complete your tasks. Find the impostor. Survive.');
-    document.getElementById('role-name').style.color = role === 'impostor' ? 'var(--imp)' : (amStalker ? 'var(--amber)' : 'var(--crew)');
+    document.getElementById('role-name').style.color = role === 'impostor' ? 'var(--imp)' : (amStalker ? 'var(--amber)' : amSpy ? '#378ADD' : 'var(--crew)');
     if (role === 'impostor' && gameState) {
       const fellowImpostors = Object.entries(gameState.players||{})
         .filter(([pid, p]) => p.role === 'impostor' && pid !== myPlayerId)
@@ -1454,6 +1511,13 @@
       // Show stalk tab only for the stalker
       const stalkBtn = document.getElementById('tab-stalk-btn');
       if (stalkBtn) stalkBtn.style.display = me.isStalker ? '' : 'none';
+      // Show spy hint only for the spy
+      const spyHint = document.getElementById('spy-hint');
+      if (spyHint) {
+        spyHint.style.display = me.isSpy ? 'block' : 'none';
+        const spyHintLoc = document.getElementById('spy-hint-loc');
+        if (spyHintLoc) spyHintLoc.textContent = settings.spyLocationName || 'Assembly Point';
+      }
       // Stalker: detect new kill alert on followed target
       if (me.isStalker && me.stalkAlert && me.stalkAlert.at && me.stalkAlert.at !== _lastStalkAlert) {
         _lastStalkAlert = me.stalkAlert.at;
@@ -1658,6 +1722,13 @@
 
   async function assignQuestFromLocation(locName) {
     if (!myPlayerId || !gameState) { showToast('Not in a game'); return; }
+    // Spy: scanning the Assembly Point opens the full-player radar (session-bound access)
+    const me0 = gameState.players?.[myPlayerId];
+    const spyLoc = (settings.spyLocationName || 'Assembly Point').toLowerCase();
+    if (me0?.isSpy && locName.trim().toLowerCase() === spyLoc) {
+      openSpyRadar();
+      return;
+    }
     await loadMissions();
     const playerSnap = await get(ref(db, GAME_REF+'/players/'+myPlayerId));
     if (!playerSnap.exists()) { showToast('Player data not found'); return; }
@@ -1673,7 +1744,7 @@
       document.getElementById('quest-result-content').innerHTML = `
         <div class="mission-card">
           <div style="font-weight:600; font-size:15px; margin-bottom:6px;">${alreadyVisited.description}</div>
-          <div style="font-size:13px; color:var(--muted);">${alreadyVisited.done ? '✅ Completed' : (alreadyVisited.proofType==='photo'?'📷 Photo required':alreadyVisited.proofType==='quiz'?'🧠 Quiz':'🔢 Code required')}</div>
+          <div style="font-size:13px; color:var(--muted);">${alreadyVisited.done ? '✅ Completed' : (alreadyVisited.proofType==='photo'?'📷 Photo required':alreadyVisited.proofType==='quiz'?'🧠 Quiz':alreadyVisited.proofType==='wordle'?'🟩 Wordle':'🔢 Code required')}</div>
         </div>`;
       document.getElementById('overlay-quest-result').classList.add('active');
       return;
@@ -1704,7 +1775,7 @@
     document.getElementById('quest-result-content').innerHTML = `
       <div class="mission-card">
         <div style="font-weight:600; font-size:15px; margin-bottom:6px;">${picked.description}</div>
-        <div style="font-size:13px; color:var(--muted);">${picked.proofType==='photo'?'📷 Photo required':picked.proofType==='quiz'?'🧠 Quiz':'🔢 Code required'}</div>
+        <div style="font-size:13px; color:var(--muted);">${picked.proofType==='photo'?'📷 Photo required':picked.proofType==='quiz'?'🧠 Quiz':picked.proofType==='wordle'?'🟩 Wordle':'🔢 Code required'}</div>
       </div>`;
     document.getElementById('overlay-quest-result').classList.add('active');
   }
@@ -1816,9 +1887,9 @@
           <div style="flex:1;">
             <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location||''}</div>
             <div style="font-weight:500;">${m.description.replace('{pass}', settings.quizPassScore||4)}</div>
-            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo' : m.proofType === 'audio' ? '🎙 Audio' : m.proofType==='quiz'?'🧠 Quiz':'🔢 Code'}</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo' : m.proofType === 'audio' ? '🎙 Audio' : m.proofType==='quiz'?'🧠 Quiz':m.proofType==='wordle'?'🟩 Wordle':'🔢 Code'}</div>
           </div>
-          <button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="${m.category==='coop'?`openCoopByKey('${mkey}')`:(m.proofType==='quiz'?`openQuizByKey('${mkey}',0)`:`openProofByKey('${mkey}')`)}">Complete</button>
+          <button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="${m.category==='coop'?`openCoopByKey('${mkey}')`:(m.proofType==='quiz'?`openQuizByKey('${mkey}',0)`:(m.proofType==='wordle'?`openWordleByKey('${mkey}')`:`openProofByKey('${mkey}')`))}">Complete</button>
         </div>
       </div>
     `).join('');
@@ -1839,10 +1910,10 @@
           <div style="flex:1;">
             <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location || ''} ${m.category ? '· '+m.category : ''}</div>
             <div style="font-weight:500;">${m.description.replace('{pass}', settings.quizPassScore||4)}</div>
-            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.category==='coop' ? '👥 Co-op mission' : m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : m.proofType === 'none' ? '✔ No proof' : m.proofType === 'quiz' ? '🧠 Quiz' : '🔢 Secret code required'}</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.category==='coop' ? '👥 Co-op mission' : m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : m.proofType === 'none' ? '✔ No proof' : m.proofType === 'quiz' ? '🧠 Quiz' : m.proofType === 'wordle' ? '🟩 Wordle' : '🔢 Secret code required'}</div>
           </div>
           <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;">
-            <button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="${m.category==='coop'?`openCoopByKey('${mkey}')`:(m.proofType==='quiz'?`openQuizByKey('${mkey}',0)`:`openProofByKey('${mkey}')`)}">${m.category==='coop'?'👥 Co-op':m.proofType==='quiz'?'🧠 Quiz':'Complete'}</button>
+            <button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="${m.category==='coop'?`openCoopByKey('${mkey}')`:(m.proofType==='quiz'?`openQuizByKey('${mkey}',0)`:(m.proofType==='wordle'?`openWordleByKey('${mkey}')`:`openProofByKey('${mkey}')`))}">${m.category==='coop'?'👥 Co-op':m.proofType==='quiz'?'🧠 Quiz':m.proofType==='wordle'?'🟩 Wordle':'Complete'}</button>
             <button class="btn btn-ghost" style="width:auto; padding:5px 12px; font-size:11px;" onclick="rerollTaskByKey('${mkey}')">🎲 Reroll</button>
           </div>
         </div>
@@ -2173,6 +2244,7 @@
     if (meetingTimerInterval) clearInterval(meetingTimerInterval);
     if (cooldownInterval) clearInterval(cooldownInterval);
     stopMapRefresh();
+    if (window.closeSpyRadar) window.closeSpyRadar();
     document.getElementById('meeting-banner').style.display = 'none';
     document.getElementById('meeting-pill').style.display = 'none';
     const winner = gameState.winner;
@@ -3163,6 +3235,141 @@
     }, revealDelay);
   }
 
+  // ===== WORDLE mission =====
+  const WORDLE_WORDS = [
+    'APPLE','BEACH','BRAIN','BREAD','BRUSH','CHAIR','CHEST','CHORD','CLICK','CLOCK',
+    'CLOUD','DANCE','DIARY','DRINK','EARTH','FAITH','FLAME','FLASK','FRAME','FRUIT',
+    'GHOST','GLASS','GRAPE','GREEN','HEART','HONEY','HOUSE','JUICE','KNIFE','LEMON',
+    'LIGHT','MONEY','MOUSE','MUSIC','NIGHT','OCEAN','PAINT','PEARL','PHONE','PIANO',
+    'PIZZA','PLANT','PLATE','POWER','QUEEN','RIVER','ROBOT','SHARP','SHEEP','SHINE',
+    'SHIRT','SMILE','SNAKE','SPACE','SPICE','STONE','STORM','SUGAR','TABLE','TIGER',
+    'TOAST','TOWER','TRAIN','TREND','TRUCK','VOICE','WATCH','WATER','WHEEL','WORLD',
+    'BERRY','CANDY','CLEAN','CROWN','DREAM','EAGLE','FENCE','FIELD','GIANT','GLOVE',
+    'GRASS','HAPPY','HOTEL','IGLOO','JELLY','KOALA','LASER','MAGIC','MANGO','MEDAL',
+    'MOTOR','NURSE','OLIVE','PARTY','PETAL','PILOT','PRIZE','RADIO','SALAD','SCARF',
+    'SHELL','SKIRT','SMOKE','SOLAR','SPOON','STAGE','SUSHI','SWORD','TRACE','TASTY',
+    'TRUST','VIRUS','WHALE','ZEBRA','ARROW','BADGE','BLAZE','BLOOM','BRAVE','CABLE',
+    'CHARM','CLOTH','CREAM','CURVE','DAISY','DELTA','DRESS','FAIRY','FLOUR','FROST',
+    'GENIE','GRAIN','HANDY','IVORY','JOKER','LUNAR','MAPLE','MELON','NORTH','PEACH',
+    'PLUMB','POPPY','RANCH','ROYAL','SANDY','SHADE','SHARK','SIREN','SLOTH','SPARK',
+    'STORY','SUNNY','SWEET','TIDAL','TULIP','UNITY','VAULT','VIVID','WAGON','WOVEN'
+  ].filter(w => /^[A-Z]{5}$/.test(w));
+
+  let _wordleMissionKey = null, _wordleAnswer = '', _wordleRow = 0;
+  const WORDLE_MAX = 6;
+
+  function _wordlePickWord() {
+    let w;
+    do { w = WORDLE_WORDS[Math.floor(Math.random() * WORDLE_WORDS.length)]; }
+    while (w === _wordleAnswer && WORDLE_WORDS.length > 1);
+    return w;
+  }
+
+  function _wordleBuildGrid() {
+    const grid = document.getElementById('wordle-grid');
+    grid.innerHTML = '';
+    for (let r = 0; r < WORDLE_MAX; r++) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid; grid-template-columns:repeat(5,44px); gap:6px;';
+      row.id = 'wordle-row-' + r;
+      for (let c = 0; c < 5; c++) {
+        const cell = document.createElement('div');
+        cell.id = 'wordle-cell-' + r + '-' + c;
+        cell.style.cssText = 'width:44px; height:44px; border:2px solid var(--border2); border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:22px; font-weight:700; text-transform:uppercase; color:var(--text);';
+        row.appendChild(cell);
+      }
+      grid.appendChild(row);
+    }
+  }
+
+  function _wordleNewRound(firstMsg) {
+    _wordleAnswer = _wordlePickWord();
+    _wordleRow = 0;
+    _wordleBuildGrid();
+    const inp = document.getElementById('wordle-input');
+    inp.value = ''; inp.disabled = false;
+    document.getElementById('wordle-guess-btn').disabled = false;
+    document.getElementById('wordle-msg').textContent = firstMsg || '';
+  }
+
+  window.openWordleByKey = function(mkey) {
+    const me = gameState.players?.[myPlayerId];
+    const mission = me?.missions?.[mkey];
+    if (!mission) { showToast('Mission not found'); return; }
+    _wordleMissionKey = mkey;
+    _wordleNewRound('');
+    document.getElementById('overlay-wordle').classList.add('active');
+    const inp = document.getElementById('wordle-input');
+    if (inp && !inp._enterBound) {
+      inp._enterBound = true;
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); window.wordleSubmitGuess(); } });
+    }
+    setTimeout(() => inp && inp.focus(), 100);
+  };
+
+  window.closeWordleTemp = function() {
+    closeOverlay('overlay-wordle');
+    // Mission stays pending; reopening starts a fresh game
+  };
+
+  window.wordleSubmitGuess = async function() {
+    const inp = document.getElementById('wordle-input');
+    const msg = document.getElementById('wordle-msg');
+    const guess = (inp.value || '').trim().toUpperCase();
+    if (!/^[A-Z]{5}$/.test(guess)) { msg.textContent = 'Enter 5 letters (A–Z)'; return; }
+    // Compute feedback (Wordle rules with duplicate handling)
+    const ans = _wordleAnswer.split('');
+    const res = new Array(5).fill('absent');
+    const counts = {};
+    ans.forEach(ch => counts[ch] = (counts[ch]||0)+1);
+    // greens first
+    for (let i = 0; i < 5; i++) {
+      if (guess[i] === ans[i]) { res[i] = 'correct'; counts[guess[i]]--; }
+    }
+    for (let i = 0; i < 5; i++) {
+      if (res[i] === 'correct') continue;
+      if (counts[guess[i]] > 0) { res[i] = 'present'; counts[guess[i]]--; }
+    }
+    // Paint the row
+    for (let c = 0; c < 5; c++) {
+      const cell = document.getElementById('wordle-cell-' + _wordleRow + '-' + c);
+      if (!cell) continue;
+      cell.textContent = guess[c];
+      if (res[c] === 'correct') { cell.style.background = '#3aa757'; cell.style.borderColor = '#3aa757'; cell.style.color = '#fff'; }
+      else if (res[c] === 'present') { cell.style.background = '#c9a227'; cell.style.borderColor = '#c9a227'; cell.style.color = '#fff'; }
+      else { cell.style.background = 'var(--bg3)'; cell.style.borderColor = 'var(--bg3)'; cell.style.color = 'var(--muted)'; }
+    }
+    inp.value = '';
+    _wordleRow++;
+
+    if (guess === _wordleAnswer) {
+      // WIN — complete the mission
+      msg.style.color = 'var(--green)';
+      msg.textContent = '🎉 Correct! Task complete.';
+      inp.disabled = true;
+      document.getElementById('wordle-guess-btn').disabled = true;
+      if (navigator.vibrate) navigator.vibrate([60,40,120]);
+      if (_wordleMissionKey) {
+        await update(ref(db), { [GAME_REF+'/players/'+myPlayerId+'/missions/'+_wordleMissionKey+'/done']: true });
+        checkWinConditions();
+      }
+      setTimeout(() => { closeOverlay('overlay-wordle'); showToast('Task completed!'); msg.style.color = 'var(--amber)'; }, 1400);
+      return;
+    }
+
+    if (_wordleRow >= WORDLE_MAX) {
+      // OUT OF TRIES — new word, unlimited retries
+      msg.style.color = 'var(--imp)';
+      msg.textContent = 'Out of tries! The word was ' + _wordleAnswer + '. New word…';
+      if (navigator.vibrate) navigator.vibrate(200);
+      setTimeout(() => { _wordleNewRound('🔄 New word — try again!'); document.getElementById('wordle-input').focus(); }, 1600);
+    } else {
+      msg.style.color = 'var(--amber)';
+      msg.textContent = (WORDLE_MAX - _wordleRow) + ' tries left';
+      document.getElementById('wordle-input').focus();
+    }
+  };
+
   window.openProofByKey = function(mkey) {
     const me = gameState.players[myPlayerId];
     const mission = me.missions?.[mkey];
@@ -3828,6 +4035,187 @@
     _radarLastFrame = 0;
   }
 
+  // ===== SPY RADAR (full-player view, session-bound access) =====
+  let _spyRaf = null, _spySweep = 0, _spyLastFrame = 0, _spyLegendLast = 0;
+  window.openSpyRadar = async function() {
+    const me = gameState?.players?.[myPlayerId];
+    if (!me?.isSpy) { showToast('Only the Spy can use this'); return; }
+    startGPS();
+    document.getElementById('overlay-spy-radar').classList.add('active');
+    _spyLegendLast = 0;
+    if (navigator.vibrate) navigator.vibrate(40);
+    const FRAME_MS = 33, SWEEP_SPEED = 1.6;
+    const loop = (ts) => {
+      _spyRaf = requestAnimationFrame(loop);
+      if (ts - _spyLastFrame < FRAME_MS) return;
+      const dt = _spyLastFrame ? (ts - _spyLastFrame) / 1000 : 0;
+      _spyLastFrame = ts;
+      _spySweep = (_spySweep + SWEEP_SPEED * dt) % (2 * Math.PI);
+      drawSpyRadar(_spySweep);
+    };
+    _spyRaf = requestAnimationFrame(loop);
+  };
+
+  window.closeSpyRadar = function() {
+    if (_spyRaf) { cancelAnimationFrame(_spyRaf); _spyRaf = null; }
+    _spyLastFrame = 0;
+    document.getElementById('overlay-spy-radar').classList.remove('active');
+    // Access is revoked — the only way back in is to rescan the Assembly Point QR
+  };
+
+  function drawSpyRadar(sweep) {
+    sweep = sweep || 0;
+    const canvas = document.getElementById('spy-radar-canvas');
+    if (!canvas) return;
+    // Larger than the normal radar to fit everyone
+    const contentW = Math.min(window.innerWidth, 560) - 48;
+    const size = Math.max(260, Math.min(contentW, 520));
+    const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 3));
+    const backing = Math.round(size * dpr);
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+    if (canvas.width !== backing) canvas.width = backing;
+    if (canvas.height !== backing) canvas.height = backing;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    const W = size, H = size, cx = W/2, cy = H/2, r = W/2 - 16;
+
+    // Origin = my GPS, else centroid of known player positions
+    let originLat, originLng, hasGPS = false;
+    if (myLatLng) { originLat = myLatLng.lat; originLng = myLatLng.lng; hasGPS = true; }
+
+    // Gather all live players with a known position (exclude myself for the centroid)
+    const others = [];
+    Object.entries(positions || {}).forEach(([pid, p]) => {
+      if (!p || p.lat == null) return;
+      const gp = gameState?.players?.[pid];
+      if (gp && gp.alive === false && !gp.pendingKill) return; // skip fully dead
+      others.push({ pid, lat: p.lat, lng: p.lng, name: p.name || (gp?.name) || '?', color: p.color || gp?.color || '#378ADD', isMe: pid === myPlayerId, updatedAt: p.updatedAt || 0 });
+    });
+    if (!hasGPS) {
+      if (others.length) {
+        originLat = others.reduce((s,o)=>s+o.lat,0)/others.length;
+        originLng = others.reduce((s,o)=>s+o.lng,0)/others.length;
+      } else { originLat = 0; originLng = 0; }
+    }
+
+    // AUTO-ZOOM: range = farthest player distance * 1.2 (min 60m)
+    let maxDist = 0;
+    others.forEach(o => {
+      if (o.isMe && hasGPS) return;
+      const { dist } = gpsToMetres(originLat, originLng, o.lat, o.lng);
+      if (dist > maxDist) maxDist = dist;
+    });
+    const range = Math.max(60, maxDist * 1.2);
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2*Math.PI); ctx.clip();
+    const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    bg.addColorStop(0, '#0a1424'); bg.addColorStop(1, '#05080f');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    // Sweep
+    ctx.save(); ctx.translate(cx, cy);
+    const beamWidth = Math.PI / 3, slices = 28;
+    for (let i = 0; i < slices; i++) {
+      const a0 = sweep - (beamWidth * i / slices), a1 = sweep - (beamWidth * (i + 1) / slices);
+      const alpha = 0.16 * (1 - i / slices);
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,r,a0-Math.PI/2,a1-Math.PI/2,true); ctx.closePath();
+      ctx.fillStyle = `rgba(55,138,221,${alpha})`; ctx.fill();
+    }
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(Math.cos(sweep-Math.PI/2)*r, Math.sin(sweep-Math.PI/2)*r);
+    ctx.strokeStyle = 'rgba(133,183,235,0.6)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore();
+    // Grid
+    [0.33,0.66,1].forEach((f,i)=>{ ctx.beginPath(); ctx.arc(cx,cy,r*f,0,2*Math.PI); ctx.strokeStyle = i===2?'rgba(55,138,221,0.4)':'rgba(55,138,221,0.13)'; ctx.lineWidth = i===2?1.5:1; ctx.stroke(); });
+    ctx.strokeStyle='rgba(55,138,221,0.13)'; ctx.lineWidth=1; ctx.setLineDash([4,6]);
+    ctx.beginPath(); ctx.moveTo(cx-r,cy); ctx.lineTo(cx+r,cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx,cy-r); ctx.lineTo(cx,cy+r); ctx.stroke(); ctx.setLineDash([]);
+    ctx.restore();
+
+    // North + range ring labels
+    ctx.fillStyle='rgba(55,138,221,0.55)'; ctx.font='bold 10px monospace'; ctx.textAlign='center'; ctx.fillText('N', cx, cy-r-4);
+    ctx.fillStyle='rgba(55,138,221,0.4)'; ctx.font='9px monospace'; ctx.textAlign='left';
+    ctx.fillText(Math.round(range/3)+'m', cx+4, cy - r*0.33 - 2);
+    ctx.fillText(Math.round(range*2/3)+'m', cx+4, cy - r*0.66 - 2);
+
+    const labels = [];
+    const legendItems = [];
+    const FRESH_MS = 20000;   // fully fresh under 20s
+    const STALE_MS = 90000;   // fully faded by 90s
+    const nowT = Date.now();
+    others.forEach(o => {
+      if (o.isMe && hasGPS) return; // drawn as center below
+      const age = o.updatedAt ? (nowT - o.updatedAt) : STALE_MS;
+      // opacity: 1.0 when fresh, fading to 0.22 when very stale
+      const t = Math.max(0, Math.min(1, (age - FRESH_MS) / (STALE_MS - FRESH_MS)));
+      const op = 1 - t * 0.78;
+      const stale = age > FRESH_MS;
+      const { dist, bearing } = gpsToMetres(originLat, originLng, o.lat, o.lng);
+      const scale = Math.min(dist / range, 0.97);
+      const px = cx + Math.sin(bearing) * r * scale;
+      const py = cy - Math.cos(bearing) * r * scale;
+      ctx.save();
+      ctx.globalAlpha = op;
+      const glow = ctx.createRadialGradient(px, py, 0, px, py, 13);
+      glow.addColorStop(0, (o.color||'#378ADD') + 'cc'); glow.addColorStop(1, (o.color||'#378ADD') + '00');
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(px, py, 13, 0, 2*Math.PI); ctx.fill();
+      ctx.beginPath(); ctx.arc(px, py, 7, 0, 2*Math.PI); ctx.fillStyle = o.color || '#378ADD'; ctx.fill();
+      ctx.strokeStyle = stale ? 'rgba(255,255,255,0.45)' : '#fff';
+      ctx.lineWidth = 1.5;
+      if (stale) ctx.setLineDash([3,3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+      labels.push({ text: o.name, x: px, anchorY: py - 11, color: stale ? 'rgba(255,255,255,0.55)' : '#fff', prefer: 'up' });
+      legendItems.push({ name: o.name, dist: Math.round(dist), color: o.color || '#378ADD', age });
+    });
+
+    // My position at center (if GPS)
+    if (hasGPS) {
+      const myColor = gameState?.players?.[myPlayerId]?.color || '#378ADD';
+      const pulse = 0.5 + 0.5*Math.sin(Date.now()/400);
+      ctx.beginPath(); ctx.arc(cx, cy, 11+pulse*5, 0, 2*Math.PI);
+      ctx.strokeStyle = myColor + '66'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 2*Math.PI); ctx.fillStyle = myColor; ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+      labels.push({ text: 'YOU', x: cx, anchorY: cy - 12, color: '#fff', prefer: 'up' });
+    }
+
+    placeRadarLabels(ctx, labels, W, H);
+
+    // Legend (throttled)
+    const nowL = Date.now();
+    if (nowL - _spyLegendLast > 1000) {
+      _spyLegendLast = nowL;
+      const legendEl = document.getElementById('spy-radar-legend');
+      if (legendEl) {
+        const sorted = legendItems.slice().sort((a,b)=>a.dist-b.dist);
+        const fmtAge = (ms) => {
+          if (!ms || ms < 0) return '';
+          const s = Math.round(ms/1000);
+          if (s < 60) return s + 's ago';
+          return Math.round(s/60) + 'm ago';
+        };
+        legendEl.innerHTML = sorted.length
+          ? sorted.map(l => {
+              const isStale = l.age > 20000;
+              const op = isStale ? 0.5 : 1;
+              const ageTxt = fmtAge(l.age);
+              return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--border);font-size:13px;opacity:${op};">
+                <span style="width:12px;height:12px;border-radius:50%;background:${l.color};flex-shrink:0;"></span>
+                <span style="flex:1;">${l.name}${isStale?' <span style="color:var(--amber);font-size:11px;">⚠</span>':''}</span>
+                <span style="color:var(--muted);font-size:11px;">${ageTxt}</span>
+                <span style="color:var(--muted);">${l.dist}m</span>
+              </div>`;
+            }).join('')
+          : '<div style="color:var(--muted); font-size:13px; text-align:center; padding:8px;">No player positions yet — wait for GPS to sync.</div>';
+      }
+    }
+  }
+
+
   window.switchTab = function(tab) {
     ['tasks','map','players','stalk','vote'].forEach(t => {
       const el = document.getElementById('tab-'+t);
@@ -4022,6 +4410,9 @@
     document.getElementById('admin-live-game-password').value = settings.gamePassword || '';
     document.getElementById('admin-live-face').value = settings.faceDetection !== undefined ? settings.faceDetection : 1;
     document.getElementById('admin-live-stalker').value = (settings.stalkerEnabled != 0) ? 1 : 0;
+    document.getElementById('admin-live-spy').value = (settings.spyEnabled != 0) ? 1 : 0;
+    const spyLocEl = document.getElementById('admin-live-spy-loc');
+    if (spyLocEl) spyLocEl.value = settings.spyLocationName || 'Assembly Point';
     document.getElementById('admin-live-sabotage-comms').value = settings.sabotageCommsDuration || 420;
     document.getElementById('admin-live-sabotage-breach').value = settings.sabotageBreachDuration || 300;
     document.getElementById('admin-live-sabotage-rally').value = settings.sabotageRallyLocation || '';
@@ -4116,6 +4507,7 @@
         updates[GAME_REF+'/players/'+id+'/temporarilyDead'] = false;
         updates[GAME_REF+'/players/'+id+'/lives'] = null;
         updates[GAME_REF+'/players/'+id+'/isStalker'] = false;
+        updates[GAME_REF+'/players/'+id+'/isSpy'] = false;
         updates[GAME_REF+'/players/'+id+'/stalkTarget'] = null;
         updates[GAME_REF+'/players/'+id+'/stalkAlert'] = null;
         updates[GAME_REF+'/players/'+id+'/killCooldownUntil'] = 0;
@@ -4510,6 +4902,7 @@
         updates[GAME_REF+'/players/'+id+'/temporarilyDead'] = false;
         updates[GAME_REF+'/players/'+id+'/lives'] = null;
         updates[GAME_REF+'/players/'+id+'/isStalker'] = false;
+        updates[GAME_REF+'/players/'+id+'/isSpy'] = false;
         updates[GAME_REF+'/players/'+id+'/stalkTarget'] = null;
         updates[GAME_REF+'/players/'+id+'/stalkAlert'] = null;
         updates[GAME_REF+'/players/'+id+'/killCooldownUntil'] = 0;
