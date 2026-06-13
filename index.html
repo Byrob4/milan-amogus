@@ -288,6 +288,7 @@
   </div>
   <div id="imp-tab-tasks" style="display:none">
     <div style="font-size:13px; color:var(--muted); margin-bottom:12px; padding:8px; background:rgba(226,75,74,0.08); border-radius:var(--radius-sm);">Your tasks don't count toward crew progress — but completing them helps you blend in.</div>
+    <button class="btn btn-primary" onclick="openQRScanner()" style="margin-bottom:12px;">📷 Scan location QR</button>
     <div id="imp-tasks-list"></div>
   </div>
   <div id="imp-tab-map" style="display:none">
@@ -1100,7 +1101,10 @@
     if (!reconnected) showScreen('screen-join');
   });
 
+  let _lobbyListenerAttached = false;
   function listenLobby() {
+    if (_lobbyListenerAttached) return;
+    _lobbyListenerAttached = true;
     onValue(ref(db, GAME_REF), (snap) => {
       if (!snap.exists()) return;
       gameState = snap.val();
@@ -1260,9 +1264,12 @@
     listenGame();
   }
 
+  let _gameListenerAttached = false;
   function listenGame() {
     if (!hackingListenerAttached) { listenHacking(); hackingListenerAttached = true; startGPS(); }
     listenSettings();
+    if (_gameListenerAttached) return;
+    _gameListenerAttached = true;
     onValue(ref(db, GAME_REF), (snap) => {
       if (!snap.exists()) return;
       gameState = snap.val();
@@ -1651,7 +1658,6 @@
 
   async function assignQuestFromLocation(locName) {
     if (!myPlayerId || !gameState) { showToast('Not in a game'); return; }
-    if (myRole === 'impostor') { showToast("You're an impostor — no quests for you 😈"); return; }
     await loadMissions();
     const playerSnap = await get(ref(db, GAME_REF+'/players/'+myPlayerId));
     if (!playerSnap.exists()) { showToast('Player data not found'); return; }
@@ -3419,10 +3425,10 @@
     const others = Object.entries(positions)
       .filter(([pid, p]) => {
         if (pid === myPlayerId || p.lat == null) return false;
-        // Exclude other impostors and dead players
+        // Exclude other impostors and dead/downed players
         const gp = gameState?.players?.[pid];
         if (gp && gp.role === 'impostor') return false;
-        if (gp && !gp.alive && !gp.pendingKill) return false;
+        if (gp && (!gp.alive || gp.temporarilyDead)) return false;
         return true;
       })
       .map(([pid, p]) => ({ pid, dist: metersBetween(myLatLng.lat, myLatLng.lng, p.lat, p.lng) }))
@@ -3785,11 +3791,12 @@
   }
 
   let hackingListenerAttached = false;
+  let _posPushInterval = null;
   const _origGoToMain = window.goToMain;
   window.goToMain = function() {
     startGPS();
     if (!hackingListenerAttached) { listenHacking(); hackingListenerAttached = true; }
-    setInterval(() => { if (myLatLng) pushMyPosition(); }, 10000);
+    if (!_posPushInterval) _posPushInterval = setInterval(() => { if (myLatLng) pushMyPosition(); }, 10000);
     if (_origGoToMain) _origGoToMain();
   }
 
@@ -4189,19 +4196,6 @@
     `).join('');
   }
 
-  async function loadAdminSettings() {
-    await loadSettings();
-    document.getElementById('setting-cooldown').value = settings.cooldown || 120;
-    document.getElementById('setting-tasks').value = settings.tasksPerPlayer || 3;
-    document.getElementById('setting-vote-duration').value = settings.voteDuration || 60;
-    document.getElementById('setting-meeting-duration').value = settings.meetingDuration || 300;
-    document.getElementById('setting-impostors').value = settings.impostorCount || 1;
-    document.getElementById('setting-face-detection').value = settings.faceDetection !== undefined ? settings.faceDetection : 1;
-    document.getElementById('setting-photo-review').value = settings.photoReview || 0;
-    document.getElementById('setting-lives').value = settings.lives || 2;
-    document.getElementById('setting-emergency-cooldown').value = settings.emergencyCooldown || 180;
-  }
-
   async function loadAdminGameState() {
     const snap = await get(ref(db, GAME_REF));
     const el = document.getElementById('admin-game-state');
@@ -4226,25 +4220,6 @@
         <div style="color:var(--muted); margin:2px 0;">Reported by ${r.reportedByName}</div>
         <div>${r.reason}</div>
       </div>`).join('') : '');
-  }
-
-  window.saveSettings = async function() {
-    const s = {
-      cooldown: parseInt(document.getElementById('setting-cooldown').value)||120,
-      tasksPerPlayer: parseInt(document.getElementById('setting-tasks').value)||3,
-      voteDuration: parseInt(document.getElementById('setting-vote-duration').value)||60,
-      meetingDuration: parseInt(document.getElementById('setting-meeting-duration').value)||300,
-      impostorCount: parseInt(document.getElementById('setting-impostors').value)||1,
-      faceDetection: parseInt(document.getElementById('setting-face-detection').value),
-      photoReview: parseInt(document.getElementById('setting-photo-review').value),
-      lives: parseInt(document.getElementById('setting-lives').value)||2,
-      emergencyCooldown: parseInt(document.getElementById('setting-emergency-cooldown').value)||180,
-    };
-    const newPwd = document.getElementById('setting-password').value;
-    if (newPwd) s.adminPassword = newPwd;
-    await set(ref(db, SETTINGS_REF), { ...settings, ...s });
-    settings = { ...settings, ...s };
-    showToast('Settings saved');
   }
 
   window.showAddMission = async function() {
