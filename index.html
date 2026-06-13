@@ -1875,8 +1875,9 @@
     el.innerHTML = players.map(p => {
       const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
       // allLives: show everyone's lives (impostor view). showLives: only own lives (crewmate view).
-      const showThisLives = (allLives || (showLives && pid === myPlayerId)) && p.lives !== undefined && p.alive;
-      const livesHtml = showThisLives ? `<span style="font-size:12px; color:var(--amber); margin-right:6px;">${'❤️'.repeat(Math.max(0,p.lives))}</span>` : '';
+      const showThisLives = (allLives || (showLives && pid === myPlayerId)) && p.alive;
+      const livesVal = (p.lives !== undefined && p.lives !== null) ? p.lives : (settings.lives || 2);
+      const livesHtml = showThisLives ? `<span style="font-size:13px; color:var(--amber); margin-right:6px;">${'❤️'.repeat(Math.max(0,livesVal))}</span>` : '';
       return `<div class="player-row">
         <div class="player-dot" style="background:${p.color}"></div>
         <span style="flex:1;">${p.name}</span>
@@ -1896,7 +1897,8 @@
       const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
       const shielded = (p.shieldUntil || 0) > now;
       const recovering = !!p.pendingKill || shielded;
-      const livesHtml = p.lives !== undefined ? `<span style="font-size:12px; color:var(--amber); margin-right:6px;">${'❤️'.repeat(Math.max(0,p.lives))}</span>` : '';
+      const livesVal = (p.lives !== undefined && p.lives !== null) ? p.lives : (settings.lives || 2);
+      const livesHtml = `<span style="font-size:13px; color:var(--amber); margin-right:6px;">${livesVal > 0 ? '❤️'.repeat(Math.max(0,livesVal)) : '💀'}</span>`;
       let btn;
       if (recovering) {
         const secs = shielded ? Math.ceil((p.shieldUntil - now)/1000) + 's' : '';
@@ -2400,11 +2402,8 @@
     if (remainingLives <= 0) {
       // No lives left — die for real
       updates[GAME_REF+'/players/'+myPlayerId+'/alive'] = false;
-    } else {
-      // Survived — grant temporary shield
-      const shieldDur = (settings.hitShieldDuration || 60) * 1000;
-      updates[GAME_REF+'/players/'+myPlayerId+'/shieldUntil'] = Date.now() + shieldDur;
     }
+    // (Shield was already granted at kill time by the impostor — don't re-set it here)
     // Save photo to evidence board
     if (killData) await push(ref(db, GAME_REF+'/evidence'), killData);
     await update(ref(db), updates);
@@ -3053,12 +3052,23 @@
     }
     const currentLives = storedLives - 1;
     const isTemporarilyDead = currentLives <= 0;
-    await update(ref(db), {
+    // Read fresh shield duration in case admin changed it
+    let shieldDur = (settings.hitShieldDuration || 60) * 1000;
+    try {
+      const sSnap = await get(ref(db, SETTINGS_REF+'/hitShieldDuration'));
+      if (sSnap.exists()) shieldDur = sSnap.val() * 1000;
+    } catch(e) {}
+    const killUpdates = {
       [GAME_REF+'/players/'+killTarget+'/pendingKill']: true,
       [GAME_REF+'/players/'+killTarget+'/lives']: currentLives,
       [GAME_REF+'/players/'+killTarget+'/temporarilyDead']: isTemporarilyDead,
       [GAME_REF+'/killCooldownUntil']: Date.now() + (settings.cooldown||120)*1000
-    });
+    };
+    // If the victim survives, grant the shield NOW so everyone (incl. impostor) sees "Recovering"
+    if (!isTemporarilyDead) {
+      killUpdates[GAME_REF+'/players/'+killTarget+'/shieldUntil'] = Date.now() + shieldDur;
+    }
+    await update(ref(db), killUpdates);
     const killRef = await push(ref(db, GAME_REF+'/pendingKills'), killData);
     // Notify any stalker following this victim — deliver the kill photo
     const allPlayers = gameState.players || {};
