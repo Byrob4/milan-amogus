@@ -1589,17 +1589,16 @@
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
         if (code?.data) {
-          const url = code.data;
-          try {
-            const u = new URL(url);
-            const loc = u.searchParams.get('location');
+          const raw = code.data.trim();
+          if (raw.startsWith('AMOGUS:')) {
+            const loc = raw.slice('AMOGUS:'.length);
             if (loc) {
               clearInterval(_qrScanInterval);
               closeQRScanner();
-              assignQuestFromLocation(decodeURIComponent(loc));
+              assignQuestFromLocation(loc);
               return;
             }
-          } catch(e) {}
+          }
           document.getElementById('qr-scanner-status').textContent = '⚠ Not a valid location QR';
         }
       }, 250);
@@ -3848,12 +3847,12 @@
   window.showLocationQR = function(id) {
     const loc = allLocations.find(l => l.id === id);
     if (!loc) return;
-    const url = window.location.origin + '?location=' + encodeURIComponent(loc.name);
+    const payload = 'AMOGUS:' + loc.name;
     document.getElementById('qr-location-name').textContent = loc.name;
-    document.getElementById('qr-url-display').textContent = url;
+    document.getElementById('qr-url-display').textContent = payload;
     const qrEl = document.getElementById('qr-code-display');
     qrEl.innerHTML = '';
-    new QRCode(qrEl, { text: url, width: 200, height: 200, colorDark: '#000', colorLight: '#fff' });
+    new QRCode(qrEl, { text: payload, width: 200, height: 200, colorDark: '#000', colorLight: '#fff' });
     document.getElementById('overlay-qr').classList.add('active');
   }
 
