@@ -2071,11 +2071,11 @@
     const g = snap.val();
     if (g.state === 'ended') return;
     const players = g.players || {};
-    // Only count truly dead (not pending) crewmates
     const aliveCrew = Object.values(players).filter(p => (p.alive || p.pendingKill) && p.role !== 'impostor');
-    const definitelyDeadCrew = Object.values(players).filter(p => !p.alive && !p.pendingKill && p.role !== 'impostor');
     const aliveImpostors = Object.values(players).filter(p => p.alive && p.role === 'impostor');
-    const questsToWin = g.questsToWin || settings.questsToWin || 3;
+    // Read questsToWin fresh from settings — never trust gameState field which may be absent
+    const settingsSnap = await get(ref(db, SETTINGS_REF + '/questsToWin'));
+    const questsToWin = (settingsSnap.exists() && settingsSnap.val() > 0) ? settingsSnap.val() : 3;
     const crewmates = Object.values(players).filter(p => p.role !== 'impostor');
     const allCrewDone = crewmates.length > 0 && crewmates.every(p => {
       const done = Object.values(p.missions || {}).filter(m => m.done).length;
