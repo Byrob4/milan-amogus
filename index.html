@@ -91,6 +91,9 @@
   <h1>Join the game</h1>
   <div class="spacer-lg"></div>
   <div id="join-player-form">
+    <div class="label">Game password</div>
+    <input type="password" id="input-game-pw" placeholder="Ask the host" />
+    <div class="spacer"></div>
     <div class="label">Your name</div>
     <input type="text" id="input-name" placeholder="Your name" maxlength="20" />
     <div class="spacer"></div>
@@ -514,6 +517,11 @@
       </select>
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('photoReview','admin-live-photo-review')">Set</button>
     </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Game password (players must enter to join)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:16px;">
+      <input type="text" id="admin-live-game-password" style="flex:1;" placeholder="Empty = no password" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveGamePassword()">Set</button>
+    </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Admin password</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:16px;">
       <input type="password" id="admin-live-password" style="flex:1;" placeholder="New password" />
@@ -904,7 +912,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3 };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '' };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1034,12 +1042,18 @@
   window.joinGame = async function() {
     const name = document.getElementById('input-name').value.trim();
     if (!name) { showToast('Enter your name'); return; }
+    await loadSettings();
+    // Require game password if one is set
+    const requiredPw = settings.gamePassword || '';
+    if (requiredPw) {
+      const enteredPw = document.getElementById('input-game-pw')?.value || '';
+      if (enteredPw !== requiredPw) { showToast('Wrong game password'); return; }
+    }
     myPlayerId = getPlayerId();
     myName = name;
     localStorage.setItem('amogus_player_name', name);
     if (!isAdmin) isAdmin = localStorage.getItem('amogus_is_admin') === '1';
     roleRevealed = false;
-    await loadSettings();
     await loadMissions();
     await loadQuizzes();
     const snap = await get(ref(db, GAME_REF + '/state'));
@@ -3879,6 +3893,7 @@
     document.getElementById('admin-live-lives').value = settings.lives || 2;
     document.getElementById('admin-live-tasks').value = settings.tasksPerPlayer || 3;
     document.getElementById('admin-live-quests-win').value = settings.questsToWin || 3;
+    document.getElementById('admin-live-game-password').value = settings.gamePassword || '';
     document.getElementById('admin-live-face').value = settings.faceDetection !== undefined ? settings.faceDetection : 1;
     document.getElementById('admin-live-photo-review').value = settings.photoReview || 0;
     document.getElementById('admin-live-sabotage-comms').value = settings.sabotageCommsDuration || 420;
@@ -3925,6 +3940,13 @@
     await update(ref(db), { [SETTINGS_REF+'/adminPassword']: pw });
     showToast('Password updated');
     document.getElementById('admin-live-password').value = '';
+  }
+
+  window.saveGamePassword = async function() {
+    const pw = document.getElementById('admin-live-game-password').value.trim();
+    settings.gamePassword = pw;
+    await update(ref(db), { [SETTINGS_REF+'/gamePassword']: pw });
+    showToast(pw ? 'Game password set' : 'Game password removed');
   }
 
   window.switchAdminTab = function(tab) {
