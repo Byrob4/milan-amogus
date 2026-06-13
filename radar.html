@@ -600,7 +600,6 @@
     if (!allLocations.length) await loadAdminLocations();
     const locs = allLocations.filter(l => l.active !== false);
     if (!locs.length) { showToast('No active locations'); return; }
-    const origin = window.location.origin;
     const win = window.open('', '_blank');
     win.document.write(`<!DOCTYPE html><html><head>
 <meta charset="UTF-8"/>
@@ -626,15 +625,14 @@
 <div class="grid" id="qr-grid"></div>
 <script>
 const locs = ${JSON.stringify(locs.map(l => ({ name: l.name })))};
-const origin = "${origin}";
 locs.forEach((loc, i) => {
-  const url = origin + '?location=' + encodeURIComponent(loc.name);
+  const payload = 'AMOGUS:' + loc.name;
   const cell = document.createElement('div');
   cell.className = 'cell';
   cell.innerHTML = '<div class="cell-name">' + loc.name + '</div><div id="qr'+i+'"></div>';
   document.getElementById('qr-grid').appendChild(cell);
   setTimeout(() => {
-    new QRCode(document.getElementById('qr'+i), { text: url, width: 140, height: 140, colorDark:'#000', colorLight:'#fff' });
+    new QRCode(document.getElementById('qr'+i), { text: payload, width: 140, height: 140, colorDark:'#000', colorLight:'#fff' });
   }, 50 * i);
 });
 <\/script>
