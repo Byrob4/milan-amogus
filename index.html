@@ -1668,6 +1668,14 @@
       document.getElementById('overlay-quest-result').classList.add('active');
       return;
     }
+    // Build the pool of active missions for THIS location not already assigned to the player
+    const myDescriptions = new Set(existingMissions.map(m => m.description));
+    const pool = allMissions.filter(m =>
+      m.active !== false &&
+      (m.location || '').toLowerCase() === locName.toLowerCase() &&
+      !myDescriptions.has(m.description)
+    );
+
     if (!pool.length) {
       document.getElementById('quest-result-title').textContent = '✓ All quests complete here!';
       document.getElementById('quest-result-content').innerHTML = '<div style="font-size:14px; color:var(--green); text-align:center; padding:8px 0;">You\'ve finished every quest at this location.</div>';
