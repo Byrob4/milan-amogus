@@ -2167,18 +2167,14 @@
       el.innerHTML = '<div style="color:var(--muted); font-size:13px; grid-column:1/-1;">No kills recorded.</div>';
     } else {
       const all = Object.values(snap.val());
-      const seen = new Set();
-      const entries = all.filter(e => {
-        if (seen.has(e.victimId)) return false;
-        seen.add(e.victimId);
-        return true;
-      });
+      // Show every shot, most recent first (no dedup — two hits on the same player = two photos)
+      const entries = all.sort((a, b) => (b.killedAt || 0) - (a.killedAt || 0));
       el.innerHTML = entries.map(e => `
         <div style="background:var(--bg2); border:0.5px solid var(--border); border-radius:var(--radius); overflow:hidden;">
           <img src="${e.photo}" style="width:100%; display:block; aspect-ratio:4/3; object-fit:cover;" />
           <div style="padding:8px 10px;">
-            <div style="font-weight:600; font-size:13px; color:var(--imp);">💀 ${e.victimName}</div>
-            <div style="font-size:11px; color:var(--muted); margin-top:2px;">${new Date(e.killedAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+            <div style="font-weight:600; font-size:13px; color:var(--imp);">${e.fatal ? '💀' : '🩹'} ${e.victimName}</div>
+            <div style="font-size:11px; color:var(--muted); margin-top:2px;">${e.fatal ? 'Killed' : 'Shot'} · ${new Date(e.killedAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
           </div>
         </div>
       `).join('');
@@ -2404,8 +2400,6 @@
       updates[GAME_REF+'/players/'+myPlayerId+'/alive'] = false;
     }
     // (Shield was already granted at kill time by the impostor — don't re-set it here)
-    // Save photo to evidence board
-    if (killData) await push(ref(db, GAME_REF+'/evidence'), killData);
     await update(ref(db), updates);
     // Show notice with photo
     const notice = document.getElementById('kill-contest-notice');
@@ -3069,6 +3063,11 @@
       killUpdates[GAME_REF+'/players/'+killTarget+'/shieldUntil'] = Date.now() + shieldDur;
     }
     await update(ref(db), killUpdates);
+    // Save the shot photo to the evidence board immediately (every shot, not just kills)
+    await push(ref(db, GAME_REF+'/evidence'), {
+      victimId: killTarget, victimName, photo: killPhotoData,
+      killedAt: Date.now(), fatal: isTemporarilyDead
+    });
     const killRef = await push(ref(db, GAME_REF+'/pendingKills'), killData);
     // Notify any stalker following this victim — deliver the kill photo
     const allPlayers = gameState.players || {};
