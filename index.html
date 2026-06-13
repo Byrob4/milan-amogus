@@ -165,6 +165,18 @@
 <!-- MEETING CORNER PILL (shown after dismissing banner) -->
 <div id="meeting-pill" style="display:none; position:fixed; top:8px; right:8px; z-index:250; background:rgba(226,75,74,0.92); color:#fff; border-radius:20px; padding:5px 12px; font-size:13px; font-weight:700; font-variant-numeric:tabular-nums;">🚨 <span id="meeting-pill-countdown">5:00</span></div>
 
+
+<!-- SHIELD INDICATOR (fixed, always visible) -->
+<div id="shield-indicator" style="display:none; position:fixed; bottom:72px; left:8px; right:8px; z-index:200; background:rgba(55,138,221,0.93); color:#fff; border-radius:var(--radius-sm); padding:7px 14px; pointer-events:none;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+    <span style="font-weight:700; font-size:12px; letter-spacing:0.06em;">🛡 SHIELD ACTIVE</span>
+    <span id="shield-timer-text" style="font-size:13px; font-variant-numeric:tabular-nums; font-weight:700;">—</span>
+  </div>
+  <div style="height:3px; background:rgba(255,255,255,0.25); border-radius:2px; overflow:hidden;">
+    <div id="shield-timer-bar" style="height:100%; background:#fff; border-radius:2px; transition:width 0.25s linear; width:100%;"></div>
+  </div>
+</div>
+
 <!-- PHOTO REVIEW -->
 <div class="screen" id="screen-photo-review">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -498,11 +510,6 @@
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
       <input type="number" id="admin-live-lives" style="flex:1;" min="1" max="5" />
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('lives','admin-live-lives')">Set</button>
-    </div>
-    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Shield after hit (s)</div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-      <input type="number" id="admin-live-hit-shield" style="flex:1;" min="0" max="300" />
-      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('hitShieldDuration','admin-live-hit-shield')">Set</button>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Tasks per player</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
@@ -944,7 +951,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true, hitShieldDuration: 60 };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1453,23 +1460,6 @@
     if (myRole === 'crewmate') {
       document.getElementById('dead-notice').style.display = (!me.alive && !me.pendingKill) ? 'block' : 'none';
       myShieldUntil = me.shieldUntil || 0;
-      // Shield indicator
-      let shieldEl = document.getElementById('shield-indicator');
-      const shieldUntil = me.shieldUntil || 0;
-      if (Date.now() < shieldUntil) {
-        if (!shieldEl) {
-          shieldEl = document.createElement('div');
-          shieldEl.id = 'shield-indicator';
-          shieldEl.style.cssText = 'background:rgba(55,138,221,0.12); border:0.5px solid rgba(55,138,221,0.4); border-radius:var(--radius); padding:10px 14px; font-size:13px; color:#85B7EB; margin-bottom:16px; text-align:center; font-weight:600;';
-          const tasksTab = document.getElementById('tab-tasks');
-          if (tasksTab) tasksTab.insertBefore(shieldEl, tasksTab.firstChild);
-        }
-        const rem = Math.ceil((shieldUntil - Date.now())/1000);
-        shieldEl.textContent = '🛡 Shielded — ' + rem + 's';
-        shieldEl.style.display = 'block';
-      } else if (shieldEl) {
-        shieldEl.style.display = 'none';
-      }
       document.getElementById('paused-notice').style.display = isPaused ? 'block' : 'none';
       document.getElementById('progress-fill').style.width = progress + '%';
       renderTasks(me);
@@ -1584,11 +1574,10 @@
       // Re-read resolved state from Firebase — admin may have pressed "all arrived" since the tick fired
       const resolvedSnap = await get(ref(db, GAME_REF + '/sabotageBreachResolved'));
       if (resolvedSnap.exists() && resolvedSnap.val() === true) return;
-      const hackSnap = await get(ref(db, HACKING_REF));
-      const hackVal = hackSnap.exists() ? hackSnap.val() : {};
-      if (hackVal.permanent) return; // already activated by another impostor
+      const hackSnap = await get(ref(db, HACKING_REF + '/' + myPlayerId));
+      if (hackSnap.exists() && hackSnap.val().permanent) return; // already activated by this impostor
       const { ids, maxDist } = computeNearestTwo();
-      await set(ref(db, HACKING_REF), {
+      await set(ref(db, HACKING_REF + '/' + myPlayerId), {
         active: true,
         endTime: Date.now() + 86400000,
         cooldownUntil: 0,
@@ -1924,7 +1913,7 @@
         <span style="flex:1;">${p.name}</span>
         ${showLives && p.lives !== undefined && Object.keys(gameState.players).find(k => gameState.players[k].name === p.name) === myPlayerId ? `<span style="font-size:12px; color:var(--amber); margin-right:6px;">${'❤️'.repeat(Math.max(0,p.lives))}</span>` : ''}
         ${!p.alive && !p.pendingKill ? '<span class="pill pill-dead">eliminated</span>' : ''}
-        ${p.pendingKill && Object.keys(gameState.players).find(k => gameState.players[k].name === p.name) === myPlayerId ? '<span class="pill" style="background:rgba(224,151,42,0.15);color:var(--amber);">injured</span>' : ''}
+        ${p.pendingKill ? '<span class="pill" style="background:rgba(224,151,42,0.15);color:var(--amber);">injured</span>' : ''}
       </div>
     `).join('');
   }
@@ -1935,14 +1924,12 @@
     const now = Date.now();
     const onCooldown = gameState.killCooldownUntil && now < gameState.killCooldownUntil;
     if (!aliveCrew.length) { el.innerHTML = '<div style="color:var(--muted); font-size:14px;">No crewmates left alive.</div>'; return; }
-    el.innerHTML = aliveCrew.map(p => {
+    el.innerHTML = aliveCrew.filter(p => !p.pendingKill).map(p => {
       const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
-      const isDisabled = onCooldown || !!p.pendingKill;
-      const btnLabel = p.pendingKill ? '⏳ Recovering' : 'Kill';
       return `<div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:0.5px solid var(--border);">
         <div class="player-dot" style="background:${p.color}"></div>
         <span style="flex:1;">${p.name}</span>
-        <button class="btn btn-danger" style="width:auto; padding:6px 14px; font-size:13px;" ${isDisabled ? 'disabled' : ''} onclick="openKill('${pid}','${p.name}')">${btnLabel}</button>
+        <button class="btn btn-danger" style="width:auto; padding:6px 14px; font-size:13px;" ${onCooldown ? 'disabled' : ''} onclick="openKill('${pid}','${p.name}')">Kill</button>
       </div>`;
     }).join('');
   }
@@ -1970,14 +1957,20 @@
   }
 
   function refreshShieldIndicator() {
-    const shieldEl = document.getElementById('shield-indicator');
-    if (!shieldEl) return;
-    if (Date.now() < myShieldUntil) {
-      const rem = Math.ceil((myShieldUntil - Date.now())/1000);
-      shieldEl.textContent = '🛡 Shielded — ' + rem + 's';
-      shieldEl.style.display = 'block';
+    const indicator = document.getElementById('shield-indicator');
+    if (!indicator) return;
+    if (myShieldUntil > 0 && Date.now() < myShieldUntil) {
+      const remaining = Math.max(0, myShieldUntil - Date.now());
+      const total = (settings.hitShieldDuration || 60) * 1000;
+      const pct = Math.max(0, Math.min(100, (remaining / total) * 100));
+      const secs = Math.ceil(remaining / 1000);
+      indicator.style.display = 'block';
+      const textEl = document.getElementById('shield-timer-text');
+      const barEl = document.getElementById('shield-timer-bar');
+      if (textEl) textEl.textContent = secs + 's';
+      if (barEl) barEl.style.width = pct + '%';
     } else {
-      shieldEl.style.display = 'none';
+      indicator.style.display = 'none';
     }
   }
 
@@ -2326,24 +2319,14 @@
       return;
     }
     myPhotoReviews = {};
-    // Contestor (the victim) cannot vote on their own kill
-    const iContested = entries.some(([, e]) => e.victimId === myPlayerId);
-    const canVote = !iContested; // dead players CAN vote
     el.innerHTML = entries.map(([killId, e]) => {
-      const adminButtons = isAdmin ? `
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; padding-top:6px; border-top:0.5px solid var(--border);">
-          <button class="btn btn-success" onclick="adminForceReview('${killId}','valid')" style="font-size:12px; padding:6px;">✅ Force valid</button>
-          <button class="btn btn-danger" onclick="adminForceReview('${killId}','invalid')" style="font-size:12px; padding:6px;">❌ Force invalid</button>
-        </div>` : '';
-      const voteButtons = canVote ? `
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-          <button class="btn btn-success" id="review-valid-${killId}" onclick="setReview('${killId}','valid')" style="font-size:13px; padding:8px;">✓ Valid</button>
-          <button class="btn btn-danger" id="review-invalid-${killId}" onclick="setReview('${killId}','invalid')" style="font-size:13px; padding:8px;">✗ Invalid</button>
-        </div>` : `<div style="font-size:13px; color:var(--muted); text-align:center; padding:8px 0;">You cannot vote on your own kill</div>`;
       return `<div class="card" style="margin-bottom:16px;">
         <img src="${e.photo}" style="width:100%; border-radius:8px; display:block; margin-bottom:10px; aspect-ratio:4/3; object-fit:cover;" />
-        <div style="font-weight:600; margin-bottom:8px;">💀 ${e.victimName}</div>
-        ${voteButtons}${adminButtons}
+        <div style="font-weight:600; margin-bottom:12px;">💀 ${e.victimName}</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <button class="btn btn-danger" onclick="adminDecideKill('${killId}','valid')" style="font-size:13px; padding:10px;">💀 Valid — dies</button>
+          <button class="btn btn-success" onclick="adminDecideKill('${killId}','invalid')" style="font-size:13px; padding:10px;">✅ Invalid — survives</button>
+        </div>
       </div>`;
     }).join('');
     // Start review timer
@@ -2361,30 +2344,46 @@
     }, 1000);
   }
 
-  window.adminForceReview = async function(killId, verdict) {
+  window.adminDecideKill = async function(killId, verdict) {
+    if (reviewTimerInterval) clearInterval(reviewTimerInterval);
     const evidence = gameState?.pendingEvidence || {};
     const e = evidence[killId];
     if (!e) return;
     const updates = {};
     if (verdict === 'invalid') {
+      // Kill contested successfully — restore a life
       const victim = gameState.players?.[e.victimId];
       updates[GAME_REF+'/players/'+e.victimId+'/lives'] = (victim?.lives || 0) + 1;
       updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
       updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
       if (e.pendingKillId) updates[GAME_REF+'/pendingKills/'+e.pendingKillId+'/resolved'] = true;
+      showToast(e.victimName + ' — kill invalid, life restored');
     } else {
+      // Kill confirmed — victim dies regardless of remaining lives
       updates[GAME_REF+'/players/'+e.victimId+'/alive'] = false;
       updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
       updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
-      if (e.killId || e.pendingKillId) updates[GAME_REF+'/pendingKills/'+(e.killId||e.pendingKillId)+'/resolved'] = true;
+      await push(ref(db, GAME_REF+'/evidence'), e);
+      const kid = e.killId || e.pendingKillId;
+      if (kid) updates[GAME_REF+'/pendingKills/'+kid+'/resolved'] = true;
+      showToast(e.victimName + ' — kill confirmed, eliminated');
     }
     updates[GAME_REF+'/pendingEvidence/'+killId] = null;
-    updates[GAME_REF+'/adminForceVerdict/'+killId] = verdict;
     await update(ref(db), updates);
-    showToast('Verdict applied');
-    if (reviewTimerInterval) clearInterval(reviewTimerInterval);
-    finishReviewAndVote();
+    // Check if more kills remain
+    const freshSnap = await get(ref(db, GAME_REF+'/pendingEvidence'));
+    if (freshSnap.exists() && Object.keys(freshSnap.val()).length > 0) {
+      const gsSnap = await get(ref(db, GAME_REF));
+      if (gsSnap.exists()) gameState = gsSnap.val();
+      showPhotoReview();
+    } else {
+      finishReviewAndVote();
+    }
+    checkWinConditions();
   }
+
+  // Legacy alias (kept for safety)
+  window.adminForceReview = window.adminDecideKill;
 
   window.setReview = function(killId, verdict) {
     myPhotoReviews[killId] = verdict;
@@ -2392,53 +2391,25 @@
     document.getElementById('review-invalid-'+killId).style.opacity = verdict === 'invalid' ? '1' : '0.4';
   }
 
+  // Called when review timer expires — default all remaining kills to valid (dies)
   window.submitPhotoReviews = async function() {
     if (reviewTimerInterval) clearInterval(reviewTimerInterval);
     const evidence = gameState?.pendingEvidence || {};
     const entries = Object.entries(evidence);
     const updates = {};
     for (const [killId, e] of entries) {
-      // Skip if admin already forced a verdict
-      if (gameState?.adminForceVerdict?.[killId]) continue;
-      // Exclude the contestor from voter count
-      const eligibleVoters = Object.values(gameState.players||{})
-        .filter(p => p.name !== '' && p.role !== undefined);
-      const totalVoters = Math.max(1, eligibleVoters.length - 1); // exclude the victim
-      const reviewsSnap = await get(ref(db, GAME_REF+'/photoReviews/'+killId));
-      const existing = reviewsSnap.exists() ? reviewsSnap.val() : {};
-      if (myPhotoReviews[killId] && e.victimId !== myPlayerId) {
-        existing[myPlayerId] = myPhotoReviews[killId];
-        updates[GAME_REF+'/photoReviews/'+killId] = existing;
-      }
-      const invalidCount = Object.values(existing).filter(v => v === 'invalid').length;
-      // Tie or majority valid = valid. Only strict majority invalid = invalid.
-      if (invalidCount * 2 > totalVoters) {
-        // Invalid — restore life
-        const victim = gameState.players?.[e.victimId];
-        updates[GAME_REF+'/players/'+e.victimId+'/lives'] = (victim?.lives || 0) + 1;
-        updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
-        updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
-        if (e.pendingKillId) updates[GAME_REF+'/pendingKills/'+e.pendingKillId+'/resolved'] = true;
-        showToast(e.victimName + ' kill invalidated — life restored');
-      } else {
-        // Valid — confirm death only if no lives left
-        const victim2 = gameState.players?.[e.victimId];
-        const remLives = victim2?.lives !== undefined ? victim2.lives : 0;
-        updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
-        updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
-        if (remLives <= 0) {
-          updates[GAME_REF+'/players/'+e.victimId+'/alive'] = false;
-          await push(ref(db, GAME_REF+'/evidence'), e);
-        }
-        const kid = e.killId || e.pendingKillId;
-        if (kid) updates[GAME_REF+'/pendingKills/'+kid+'/resolved'] = true;
-      }
+      // Timer expired — confirm kill, victim dies
+      updates[GAME_REF+'/players/'+e.victimId+'/alive'] = false;
+      updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
+      updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
+      await push(ref(db, GAME_REF+'/evidence'), e);
+      const kid = e.killId || e.pendingKillId;
+      if (kid) updates[GAME_REF+'/pendingKills/'+kid+'/resolved'] = true;
       updates[GAME_REF+'/pendingEvidence/'+killId] = null;
-      updates[GAME_REF+'/photoReviews/'+killId] = null;
     }
-    updates[GAME_REF+'/adminForceVerdict'] = null;
     await update(ref(db), updates);
     finishReviewAndVote();
+    checkWinConditions();
   }
 
   function finishReviewAndVote() {
@@ -2590,11 +2561,6 @@
     if (remainingLives <= 0) {
       // No lives left — die for real
       updates[GAME_REF+'/players/'+myPlayerId+'/alive'] = false;
-    } else {
-      // Survived — grant temporary shield
-      const shieldDur = (settings.hitShieldDuration || 60) * 1000;
-      updates[GAME_REF+'/players/'+myPlayerId+'/shieldUntil'] = Date.now() + shieldDur;
-      showToast('💊 You survived! Shield active for ' + (settings.hitShieldDuration || 60) + 's', 4000);
     }
     // Always save photo to evidence board regardless of lives
     if (killData) await push(ref(db, GAME_REF+'/evidence'), killData);
@@ -3516,24 +3482,32 @@
   function listenHacking() {
     onValue(ref(db, POSITIONS_REF), s => { positions = s.exists() ? s.val() : {}; });
     onValue(ref(db, HACKING_REF), s => {
+      const allHacking = s.exists() ? s.val() : {};
+      const now = Date.now();
       const traceBanner = document.getElementById('trace-banner');
-      if (!s.exists()) {
-        hackingActive = false; hackingTracked = []; hackingDynamicRadius = null;
-        if (traceBanner) traceBanner.style.display = 'none';
-        return;
-      }
-      const r = s.val();
-      hackingEndTime = r.endTime || 0;
-      hackingActive = Date.now() < hackingEndTime;
-      hackingTracked = r.tracked || [];
-      hackingDynamicRadius = r.dynamicRadius || null;
-      if (hackingActive && myRole !== 'impostor' && hackingTracked.includes(myPlayerId)) {
-        if (traceBanner && traceBanner.style.display !== 'block') {
-          traceBanner.style.display = 'block';
-          if (navigator.vibrate) navigator.vibrate([80,60,80]);
+
+      if (myRole === 'impostor') {
+        // Each impostor has their own hacking node
+        const own = allHacking[myPlayerId] || {};
+        hackingEndTime = own.endTime || 0;
+        hackingActive = now < hackingEndTime;
+        hackingTracked = own.tracked || [];
+        hackingDynamicRadius = own.dynamicRadius || null;
+      } else {
+        // Crewmate: show trace banner if tracked by ANY active impostor
+        const activeEntries = Object.values(allHacking).filter(h =>
+          h.endTime && now < h.endTime && Array.isArray(h.tracked) && h.tracked.includes(myPlayerId)
+        );
+        hackingActive = activeEntries.length > 0;
+        hackingEndTime = hackingActive ? Math.max(...Object.values(allHacking).map(h => h.endTime || 0)) : 0;
+        if (hackingActive) {
+          if (traceBanner && traceBanner.style.display !== 'block') {
+            traceBanner.style.display = 'block';
+            if (navigator.vibrate) navigator.vibrate([80,60,80]);
+          }
+        } else if (traceBanner) {
+          traceBanner.style.display = 'none';
         }
-      } else if (traceBanner) {
-        traceBanner.style.display = 'none';
       }
     });
   }
@@ -3556,7 +3530,7 @@
   }
 
   window.activateHacking = async function() {
-    const snap = await get(ref(db, HACKING_REF));
+    const snap = await get(ref(db, HACKING_REF + '/' + myPlayerId));
     const now = Date.now();
     if (snap.exists() && snap.val().cooldownUntil && now < snap.val().cooldownUntil) {
       showToast('Hacking on cooldown'); return;
@@ -3567,7 +3541,7 @@
     const { ids, maxDist } = computeNearestTwo();
     if (!ids.length) { showToast('No players to track'); return; }
     const endTime = now + duration*1000;
-    await set(ref(db, HACKING_REF), {
+    await set(ref(db, HACKING_REF + '/' + myPlayerId), {
       active: true, endTime, cooldownUntil: endTime + cooldown*1000,
       activatedBy: myPlayerId, tracked: ids, dynamicRadius: Math.ceil(maxDist*1.15)
     });
@@ -3576,7 +3550,7 @@
     hackingRecalcInterval = setInterval(async () => {
       if (Date.now() >= endTime) { clearInterval(hackingRecalcInterval); return; }
       const { ids: nIds, maxDist: nMax } = computeNearestTwo();
-      if (nIds.length) await update(ref(db, HACKING_REF), { tracked: nIds, dynamicRadius: Math.ceil(nMax*1.15) });
+      if (nIds.length) await update(ref(db, HACKING_REF + '/' + myPlayerId), { tracked: nIds, dynamicRadius: Math.ceil(nMax*1.15) });
     }, 5000);
   }
 
@@ -3584,7 +3558,7 @@
     const btn = document.getElementById('btn-hacking');
     const fill = document.getElementById('hacking-cooldown-fill');
     if (!btn) return;
-    get(ref(db, HACKING_REF)).then(snap => {
+    get(ref(db, HACKING_REF + '/' + myPlayerId)).then(snap => {
       const now = Date.now();
       if (!snap.exists()) { btn.disabled=false; btn.textContent='🛰 Activate Hacking'; if(fill)fill.style.width='0%'; return; }
       const r = snap.val();
@@ -4029,7 +4003,6 @@
     document.getElementById('admin-live-quiz-pass').value = settings.quizPassScore || 4;
     document.getElementById('admin-live-radar-range').value = settings.radarRange || 500;
     document.getElementById('admin-live-lives').value = settings.lives || 2;
-    document.getElementById('admin-live-hit-shield').value = settings.hitShieldDuration || 60;
     document.getElementById('admin-live-tasks').value = settings.tasksPerPlayer || 3;
     document.getElementById('admin-live-quests-win').value = settings.questsToWin || 3;
     document.getElementById('admin-live-game-password').value = settings.gamePassword || '';
