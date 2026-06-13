@@ -213,7 +213,7 @@
     <div class="tab" onclick="switchTab('vote')" id="tab-vote-btn" style="display:none">Vote</div>
   </div>
   <div id="tab-tasks">
-    <div class="label">Mission progress</div>
+    <div class="label" id="progress-label">Your quest progress</div>
     <div id="spy-hint" style="display:none; background:rgba(55,138,221,0.10); border:0.5px solid rgba(55,138,221,0.4); border-radius:var(--radius); padding:11px 14px; margin-bottom:14px; font-size:13px; color:#85B7EB;">🛰 <b>Spy:</b> scan the <span id="spy-hint-loc">Assembly Point</span> QR to reveal every player on a live radar.</div>
     <div class="progress-bar" style="margin-bottom:16px;"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
     <div id="tasks-list"></div>
@@ -1209,6 +1209,7 @@
       updates[GAME_REF + '/players/' + id + '/stalkTarget'] = null;
       updates[GAME_REF + '/players/' + id + '/stalkAlert'] = null;
       updates[GAME_REF + '/players/' + id + '/killCooldownUntil'] = 0;
+      updates[GAME_REF + '/players/' + id + '/rerollCooldownUntil'] = 0;
       updates[GAME_REF + '/players/' + id + '/shieldUntil'] = 0;
       updates[GAME_REF + '/players/' + id + '/pendingKill'] = false;
       updates[GAME_REF + '/players/' + id + '/temporarilyDead'] = false;
@@ -1232,6 +1233,7 @@
     }
     updates[GAME_REF + '/impostorCount'] = impostorCount;
     updates[GAME_REF + '/questsToWin'] = settings.questsToWin || 3;
+    updates[GAME_REF + '/emergencyCooldownUntil'] = 0;
     updates[GAME_REF + '/state'] = 'playing';
     updates[GAME_REF + '/sabotageUsed'] = false;
     updates[GAME_REF + '/sabotageType'] = null;
@@ -1486,9 +1488,9 @@
     const dead = Object.values(players).filter(p => !p.alive);
     const crewmates = Object.values(players).filter(p => p.role !== 'impostor');
     const questsNeeded = gameState.questsToWin || settings.questsToWin || 3;
-    const totalRequired = crewmates.length * questsNeeded;
-    const totalDone = crewmates.reduce((sum, p) => sum + Object.values(p.missions || {}).filter(m => m.done).length, 0);
-    const progress = totalRequired > 0 ? Math.min(100, Math.round((totalDone / totalRequired) * 100)) : 0;
+    // Personal progress — each player sees only their own quest completion
+    const myDone = Object.values(me.missions || {}).filter(m => m.done).length;
+    const progress = questsNeeded > 0 ? Math.min(100, Math.round((myDone / questsNeeded) * 100)) : 0;
 
     const isPaused = !!gameState.paused;
     if (myRole === 'crewmate') {
@@ -1496,6 +1498,8 @@
       myShieldUntil = me.shieldUntil || 0;
       document.getElementById('paused-notice').style.display = isPaused ? 'block' : 'none';
       document.getElementById('progress-fill').style.width = progress + '%';
+      const pl = document.getElementById('progress-label');
+      if (pl) pl.textContent = 'Your quest progress — ' + Math.min(myDone, questsNeeded) + '/' + questsNeeded;
       renderTasks(me);
       renderPlayerList('players-alive', alive, true);
       renderPlayerList('players-dead', dead, true);
@@ -3611,13 +3615,11 @@
         hackingTracked = own.tracked || [];
         hackingDynamicRadius = own.dynamicRadius || null;
       } else {
-        // Crewmate: show trace banner if tracked by ANY active impostor
-        const activeEntries = Object.values(allHacking).filter(h =>
-          h.endTime && now < h.endTime && Array.isArray(h.tracked) && h.tracked.includes(myPlayerId)
-        );
-        hackingActive = activeEntries.length > 0;
-        hackingEndTime = hackingActive ? Math.max(...Object.values(allHacking).map(h => h.endTime || 0)) : 0;
-        if (hackingActive) {
+        // Crewmate: show "someone is watching you" to EVERYONE while any impostor hacking is active
+        const anyActive = Object.values(allHacking).some(h => h.endTime && now < h.endTime);
+        hackingActive = anyActive;
+        hackingEndTime = anyActive ? Math.max(...Object.values(allHacking).map(h => h.endTime || 0)) : 0;
+        if (anyActive) {
           if (traceBanner && traceBanner.style.display !== 'block') {
             traceBanner.style.display = 'block';
             if (navigator.vibrate) navigator.vibrate([80,60,80]);
@@ -4829,7 +4831,10 @@
     const val = parseInt(document.getElementById(inputId).value);
     if (!val || val < 1) { showToast('Invalid value'); return; }
     settings[key] = val;
-    await update(ref(db), { [SETTINGS_REF+'/'+key]: val });
+    const u = { [SETTINGS_REF+'/'+key]: val };
+    // Keep the live game state in sync for settings the game reads from gameState
+    if (key === 'questsToWin') u[GAME_REF+'/questsToWin'] = val;
+    await update(ref(db), u);
     showToast(key + ' updated to ' + val);
   }
 
