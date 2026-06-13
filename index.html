@@ -941,6 +941,14 @@
   let gameState = null;
   let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true };
   let allMissions = [];
+  window._debug = () => {
+    console.log('=== STALKER DEBUG ===');
+    console.log('settings.stalkerEnabled:', settings.stalkerEnabled);
+    if (gameState?.players) {
+      Object.values(gameState.players).forEach(p => console.log(p.name, '| role:', p.role, '| isStalker:', p.isStalker, '| stalkTarget:', p.stalkTarget));
+    } else { console.log('no gameState'); }
+    console.log('my isStalker:', gameState?.players?.[myPlayerId]?.isStalker);
+  };
   let mySelectedVote = null;
   let killTarget = null;
   let killTargetName = null;
@@ -1178,9 +1186,13 @@
     const crewmateIds = shuffledIds.filter(id => !impostorIds.has(id));
     const stalkerSnap = await get(ref(db, SETTINGS_REF + '/stalkerEnabled'));
     const stalkerOn = !stalkerSnap.exists() || (stalkerSnap.val() !== 0 && stalkerSnap.val() !== false);
+    console.log('[STALKER DEBUG] enabled setting:', stalkerSnap.exists() ? stalkerSnap.val() : '(missing)', '→ stalkerOn:', stalkerOn, '| crewmates:', crewmateIds.length);
     if (stalkerOn && crewmateIds.length >= 1) {
       const stalkerId = crewmateIds[Math.floor(Math.random() * crewmateIds.length)];
       updates[GAME_REF + '/players/' + stalkerId + '/isStalker'] = true;
+      console.log('[STALKER DEBUG] assigned stalker to:', players[stalkerId]?.name, stalkerId);
+    } else {
+      console.log('[STALKER DEBUG] NO stalker assigned');
     }
     updates[GAME_REF + '/impostorCount'] = impostorCount;
     updates[GAME_REF + '/questsToWin'] = settings.questsToWin || 3;
