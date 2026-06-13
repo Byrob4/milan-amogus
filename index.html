@@ -1160,6 +1160,10 @@
       updates[GAME_REF + '/players/' + id + '/isStalker'] = false;
       updates[GAME_REF + '/players/' + id + '/stalkTarget'] = null;
       updates[GAME_REF + '/players/' + id + '/stalkAlert'] = null;
+      updates[GAME_REF + '/players/' + id + '/killCooldownUntil'] = 0;
+      updates[GAME_REF + '/players/' + id + '/shieldUntil'] = 0;
+      updates[GAME_REF + '/players/' + id + '/pendingKill'] = false;
+      updates[GAME_REF + '/players/' + id + '/temporarilyDead'] = false;
     });
     // Assign stalker to a random crewmate (read fresh setting from Firebase)
     const crewmateIds = shuffledIds.filter(id => !impostorIds.has(id));
@@ -1172,7 +1176,6 @@
     updates[GAME_REF + '/impostorCount'] = impostorCount;
     updates[GAME_REF + '/questsToWin'] = settings.questsToWin || 3;
     updates[GAME_REF + '/state'] = 'playing';
-    updates[GAME_REF + '/killCooldownUntil'] = 0;
     updates[GAME_REF + '/sabotageUsed'] = false;
     updates[GAME_REF + '/sabotageType'] = null;
     updates[GAME_REF + '/sabotageCommsUntil'] = null;
@@ -1228,8 +1231,9 @@
           : 'Complete your tasks. Find the impostor. Survive.');
     document.getElementById('role-name').style.color = role === 'impostor' ? 'var(--imp)' : (amStalker ? 'var(--amber)' : 'var(--crew)');
     if (role === 'impostor' && gameState) {
-      const fellowImpostors = Object.values(gameState.players||{})
-        .filter(p => p.role === 'impostor' && p.name !== myName);
+      const fellowImpostors = Object.entries(gameState.players||{})
+        .filter(([pid, p]) => p.role === 'impostor' && pid !== myPlayerId)
+        .map(([pid, p]) => p);
       if (fellowImpostors.length > 0) {
         document.getElementById('role-desc').textContent = 'Your fellow impostor' + (fellowImpostors.length>1?'s':'') + ': ' + fellowImpostors.map(p=>p.name).join(', ');
       }
@@ -1899,7 +1903,8 @@
     const el = document.getElementById('kill-list');
     if (!el) return;
     const now = Date.now();
-    const onCooldown = gameState.killCooldownUntil && now < gameState.killCooldownUntil;
+    const myCdUntil = gameState.players?.[myPlayerId]?.killCooldownUntil || 0;
+    const onCooldown = now < myCdUntil;
     if (!aliveCrew.length) { el.innerHTML = '<div style="color:var(--muted); font-size:14px;">No crewmates left alive.</div>'; return; }
     el.innerHTML = aliveCrew.map(p => {
       const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
@@ -1934,7 +1939,7 @@
       if (myRole !== 'impostor') return;
       renderCooldown();
       const now = Date.now();
-      const until = gameState.killCooldownUntil || 0;
+      const until = gameState.players?.[myPlayerId]?.killCooldownUntil || 0;
       const isActive = now < until;
       const players = gameState.players || {};
       const aliveCrew = Object.values(players).filter(p => p.alive && p.role !== 'impostor');
@@ -1970,7 +1975,7 @@
 
   function renderCooldown() {
     const now = Date.now();
-    const until = gameState.killCooldownUntil || 0;
+    const until = gameState.players?.[myPlayerId]?.killCooldownUntil || 0;
     const total = (settings.cooldown || 120) * 1000;
     const remaining = Math.max(0, until - now);
     const pct = remaining > 0 ? Math.round((remaining / total) * 100) : 0;
@@ -2112,9 +2117,16 @@
       updates[GAME_REF+'/players/'+topId+'/ejected'] = true;
       recapEntry.ejected = { id: topId, name: ejected.name, role: ejected.role, votes: topCount };
       if (ejected.role === 'impostor') {
-        updates[GAME_REF+'/state'] = 'ended';
-        updates[GAME_REF+'/winner'] = 'crewmates';
-        updates[GAME_REF+'/endReason'] = `${ejected.name} was the impostor. Crewmates win!`;
+        // Count impostors still alive AFTER this ejection — only end if none remain
+        const remainingImpostors = Object.entries(g.players).filter(([pid, p]) =>
+          pid !== topId && p.role === 'impostor' && p.alive && !p.temporarilyDead
+        );
+        if (remainingImpostors.length === 0) {
+          updates[GAME_REF+'/state'] = 'ended';
+          updates[GAME_REF+'/winner'] = 'crewmates';
+          updates[GAME_REF+'/endReason'] = `${ejected.name} was the last impostor. Crewmates win!`;
+        }
+        // else: other impostors remain — game continues
       }
     }
     updates[GAME_REF+'/lastRecap'] = recapEntry;
@@ -3071,30 +3083,28 @@
     if (Date.now() < shieldUntil) {
       // Attack consumed, cooldown applied, but no kill — notify both
       await update(ref(db), {
-        [GAME_REF+'/killCooldownUntil']: Date.now() + (settings.cooldown||120)*1000,
+        [GAME_REF+'/players/'+myPlayerId+'/killCooldownUntil']: Date.now() + (settings.cooldown||120)*1000,
         [GAME_REF+'/players/'+killTarget+'/shieldHit']: Date.now()
       });
       showToast('⚠ Target was shielded — attack failed', 4000);
       killTarget = null; killPhotoData = null;
       return;
     }
-    const killData = {
-      victimId: killTarget, victimName, photo: killPhotoData,
-      killedAt: Date.now(), revealAt: Date.now() + (settings.killRevealDelay || 60) * 1000,
-      fatal: isTemporarilyDead, resolved: false
-    };
     // Reduce victim's lives and mark as pending
     const victim = gameState.players[killTarget];
-    // Always read lives from the player's stored value
-    // If somehow undefined, fetch fresh from Firebase
+    // Always read lives from the player's stored value; if undefined, fetch fresh
     let storedLives = victim?.lives;
     if (storedLives === undefined || storedLives === null) {
-      // Fallback: re-read from Firebase
       const freshSnap = await get(ref(db, GAME_REF+'/players/'+killTarget+'/lives'));
       storedLives = freshSnap.exists() ? freshSnap.val() : (settings.lives || 2);
     }
     const currentLives = storedLives - 1;
     const isTemporarilyDead = currentLives <= 0;
+    const killData = {
+      victimId: killTarget, victimName, photo: killPhotoData,
+      killedAt: Date.now(), revealAt: Date.now() + (settings.killRevealDelay || 60) * 1000,
+      fatal: isTemporarilyDead, resolved: false
+    };
     // Read fresh shield duration in case admin changed it
     let shieldDur = (settings.hitShieldDuration || 60) * 1000;
     try {
@@ -3105,7 +3115,7 @@
       [GAME_REF+'/players/'+killTarget+'/pendingKill']: true,
       [GAME_REF+'/players/'+killTarget+'/lives']: currentLives,
       [GAME_REF+'/players/'+killTarget+'/temporarilyDead']: isTemporarilyDead,
-      [GAME_REF+'/killCooldownUntil']: Date.now() + (settings.cooldown||120)*1000
+      [GAME_REF+'/players/'+myPlayerId+'/killCooldownUntil']: Date.now() + (settings.cooldown||120)*1000
     };
     // If the victim survives, grant the shield NOW so everyone (incl. impostor) sees "Recovering"
     if (!isTemporarilyDead) {
@@ -3996,6 +4006,8 @@
         updates[GAME_REF+'/players/'+id+'/isStalker'] = false;
         updates[GAME_REF+'/players/'+id+'/stalkTarget'] = null;
         updates[GAME_REF+'/players/'+id+'/stalkAlert'] = null;
+        updates[GAME_REF+'/players/'+id+'/killCooldownUntil'] = 0;
+        updates[GAME_REF+'/players/'+id+'/shieldUntil'] = 0;
       });
     }
     await update(ref(db), updates);
@@ -4420,6 +4432,8 @@
         updates[GAME_REF+'/players/'+id+'/isStalker'] = false;
         updates[GAME_REF+'/players/'+id+'/stalkTarget'] = null;
         updates[GAME_REF+'/players/'+id+'/stalkAlert'] = null;
+        updates[GAME_REF+'/players/'+id+'/killCooldownUntil'] = 0;
+        updates[GAME_REF+'/players/'+id+'/shieldUntil'] = 0;
       });
     }
     await update(ref(db), updates);
