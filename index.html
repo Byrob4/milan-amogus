@@ -1174,9 +1174,11 @@
       updates[GAME_REF + '/players/' + id + '/stalkTarget'] = null;
       updates[GAME_REF + '/players/' + id + '/stalkAlert'] = null;
     });
-    // Assign stalker to a random crewmate (if enabled and enough crewmates)
+    // Assign stalker to a random crewmate (read fresh setting from Firebase)
     const crewmateIds = shuffledIds.filter(id => !impostorIds.has(id));
-    if (settings.stalkerEnabled != 0 && crewmateIds.length >= 1) {
+    const stalkerSnap = await get(ref(db, SETTINGS_REF + '/stalkerEnabled'));
+    const stalkerOn = !stalkerSnap.exists() || (stalkerSnap.val() !== 0 && stalkerSnap.val() !== false);
+    if (stalkerOn && crewmateIds.length >= 1) {
       const stalkerId = crewmateIds[Math.floor(Math.random() * crewmateIds.length)];
       updates[GAME_REF + '/players/' + stalkerId + '/isStalker'] = true;
     }
