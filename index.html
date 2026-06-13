@@ -1625,26 +1625,18 @@
 
     document.getElementById('quest-result-loc').textContent = '📍 ' + locName;
 
-    // Already have an active mission here
-    const alreadyHere = existingMissions.find(m => m.location?.toLowerCase() === locName.toLowerCase() && !m.done);
-    if (alreadyHere) {
-      document.getElementById('quest-result-title').textContent = 'Quest already active';
+    // Already have any mission from this location (active or done) — one per location per player
+    const alreadyVisited = existingMissions.find(m => m.location?.toLowerCase() === locName.toLowerCase());
+    if (alreadyVisited) {
+      document.getElementById('quest-result-title').textContent = alreadyVisited.done ? '✓ Quest already completed here' : 'Quest already active';
       document.getElementById('quest-result-content').innerHTML = `
         <div class="mission-card">
-          <div style="font-weight:600; font-size:15px; margin-bottom:6px;">${alreadyHere.description}</div>
-          <div style="font-size:13px; color:var(--muted);">${alreadyHere.proofType==='photo'?'📷 Photo required':alreadyHere.proofType==='quiz'?'🧠 Quiz':'🔢 Code required'}</div>
+          <div style="font-weight:600; font-size:15px; margin-bottom:6px;">${alreadyVisited.description}</div>
+          <div style="font-size:13px; color:var(--muted);">${alreadyVisited.done ? '✅ Completed' : (alreadyVisited.proofType==='photo'?'📷 Photo required':alreadyVisited.proofType==='quiz'?'🧠 Quiz':'🔢 Code required')}</div>
         </div>`;
       document.getElementById('overlay-quest-result').classList.add('active');
       return;
     }
-
-    // All missions at this location already done
-    const doneHere = existingMissions.filter(m => m.location?.toLowerCase() === locName.toLowerCase() && m.done);
-    const pool = allMissions.filter(m =>
-      m.active !== false &&
-      m.location?.toLowerCase() === locName.toLowerCase() &&
-      !doneHere.map(d => d.description).includes(m.description)
-    );
     if (!pool.length) {
       document.getElementById('quest-result-title').textContent = '✓ All quests complete here!';
       document.getElementById('quest-result-content').innerHTML = '<div style="font-size:14px; color:var(--green); text-align:center; padding:8px 0;">You\'ve finished every quest at this location.</div>';
@@ -4410,74 +4402,7 @@
     showScreen('screen-lobby');
   }
 
-  // QR scan handler
-  const urlParams = new URLSearchParams(window.location.search);
-  const scanLocation = urlParams.get('location');
-  if (scanLocation) {
-    document.getElementById('screen-join').classList.remove('active');
-    document.getElementById('screen-scan').classList.add('active');
-    const locName = decodeURIComponent(scanLocation);
-    document.getElementById('scan-location-name').textContent = locName;
-    const pid = localStorage.getItem('amogus_player_id');
-    if (!pid) {
-      document.getElementById('scan-content').innerHTML = '<div style="color:var(--muted); font-size:14px;">Join the game first, then scan this QR code.</div>';
-    } else {
-      document.getElementById('scan-content').innerHTML = '<div style="font-size:14px; color:var(--muted);">Loading...</div>';
-      setTimeout(async () => {
-        const [playerSnap] = await Promise.all([
-          get(ref(db, GAME_REF+'/players/'+pid)),
-          loadMissions()
-        ]);
-        if (!playerSnap.exists()) {
-          document.getElementById('scan-content').innerHTML = '<div style="color:var(--imp);">You are not in an active game.</div>';
-          return;
-        }
-        const player = playerSnap.val();
-        if (player.role === 'impostor') {
-          document.getElementById('scan-content').innerHTML = '<div style="font-size:15px;">You\'re an impostor — you don\'t need quests. 😈</div>';
-          return;
-        }
-        const existingMissions = Object.values(player.missions || {});
-        // Check if player already has an active (not done) mission from this location
-        const alreadyHere = existingMissions.find(m => m.location?.toLowerCase() === locName.toLowerCase() && !m.done);
-        if (alreadyHere) {
-          document.getElementById('scan-content').innerHTML = `
-            <div style="font-size:13px; color:var(--amber); margin-bottom:12px;">📍 You already have a quest from here:</div>
-            <div class="mission-card">
-              <div style="font-weight:600; font-size:16px; margin-bottom:6px;">${alreadyHere.description}</div>
-              <div style="font-size:13px; color:var(--muted);">${alreadyHere.proofType==='photo'?'📷 Photo required':'🔢 Secret code required'}</div>
-            </div>
-            <a href="/" class="btn btn-primary" style="text-decoration:none; margin-top:8px; display:block; text-align:center;">Open app</a>`;
-          return;
-        }
-        // Pick a random mission from this location's pool that the player hasn't done
-        const doneIds = existingMissions.filter(m => m.done).map(m => m.description);
-        const pool = allMissions.filter(m =>
-          m.active !== false &&
-          m.location?.toLowerCase() === locName.toLowerCase() &&
-          !doneIds.includes(m.description)
-        );
-        if (!pool.length) {
-          document.getElementById('scan-content').innerHTML = `<div style="color:var(--green); font-size:15px;">✓ All quests at ${locName} completed!</div>`;
-          return;
-        }
-        const picked = pool[Math.floor(Math.random() * pool.length)];
-        const { id: _id, ...missionData } = picked;
-        const newKey = 'm' + Date.now();
-        await update(ref(db, GAME_REF+'/players/'+pid+'/missions'), {
-          [newKey]: { ...missionData, done: false }
-        });
-        document.getElementById('scan-content').innerHTML = `
-          <div style="font-size:13px; color:var(--green); margin-bottom:12px;">🎯 New quest unlocked at ${locName}!</div>
-          <div class="mission-card">
-            <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${locName}</div>
-            <div style="font-weight:600; font-size:16px; margin-bottom:8px;">${picked.description}</div>
-            <div style="font-size:13px; color:var(--muted);">${picked.proofType==='photo'?'📷 Photo required':'🔢 Secret code required'}</div>
-          </div>
-          <a href="/" class="btn btn-primary" style="text-decoration:none; margin-top:8px; display:block; text-align:center;">Open app to complete</a>`;
-      }, 500);
-    }
-  }
+  // QR scanning is handled in-app only via openQRScanner()
 </script>
 </body>
 </html>
