@@ -1249,6 +1249,7 @@
     updates[GAME_REF + '/coopSessions'] = null;
     await update(ref(db), updates);
     await remove(ref(db, HACKING_REF));
+    await remove(ref(db, POSITIONS_REF)); // clear stale positions from previous games
     // Force own transition to role reveal (don't go back to lobby)
     setTimeout(async () => {
       const s = await get(ref(db, GAME_REF));
@@ -3633,10 +3634,11 @@
     const others = Object.entries(positions)
       .filter(([pid, p]) => {
         if (pid === myPlayerId || p.lat == null) return false;
-        // Exclude other impostors and dead/downed players
+        // Must be a real player in this game; exclude impostors and dead/downed players
         const gp = gameState?.players?.[pid];
-        if (gp && gp.role === 'impostor') return false;
-        if (gp && (!gp.alive || gp.temporarilyDead)) return false;
+        if (!gp) return false;
+        if (gp.role === 'impostor') return false;
+        if (!gp.alive || gp.temporarilyDead) return false;
         return true;
       })
       .map(([pid, p]) => ({ pid, dist: metersBetween(myLatLng.lat, myLatLng.lng, p.lat, p.lng) }))
@@ -4089,13 +4091,14 @@
     let originLat, originLng, hasGPS = false;
     if (myLatLng) { originLat = myLatLng.lat; originLng = myLatLng.lng; hasGPS = true; }
 
-    // Gather all live players with a known position (exclude myself for the centroid)
+    // Gather players that are IN the current game and alive (exclude ghosts/old positions)
     const others = [];
     Object.entries(positions || {}).forEach(([pid, p]) => {
       if (!p || p.lat == null) return;
       const gp = gameState?.players?.[pid];
-      if (gp && gp.alive === false && !gp.pendingKill) return; // skip fully dead
-      others.push({ pid, lat: p.lat, lng: p.lng, name: p.name || (gp?.name) || '?', color: p.color || gp?.color || '#378ADD', isMe: pid === myPlayerId, updatedAt: p.updatedAt || 0 });
+      if (!gp) return;                        // not a player in this game → stale/ghost, skip
+      if (!gp.alive && !gp.pendingKill) return; // fully dead → skip
+      others.push({ pid, lat: p.lat, lng: p.lng, name: gp.name || p.name || '?', color: gp.color || p.color || '#378ADD', isMe: pid === myPlayerId, updatedAt: p.updatedAt || 0 });
     });
     if (!hasGPS) {
       if (others.length) {
@@ -4520,6 +4523,7 @@
     }
     await update(ref(db), updates);
     await remove(ref(db, HACKING_REF));
+    await remove(ref(db, POSITIONS_REF));
   }
 
   window.switchAdminFloatTab = function(tab) {
