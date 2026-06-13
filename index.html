@@ -1455,8 +1455,8 @@
     } else {
       document.getElementById('imp-paused-notice').style.display = isPaused ? 'block' : 'none';
       renderKillList(alive.filter(p => p.role !== 'impostor'));
-      renderPlayerList('imp-players-alive', alive, false);
-      renderPlayerList('imp-players-dead', dead, false);
+      renderPlayerList('imp-players-alive', alive, false, true);
+      renderPlayerList('imp-players-dead', dead, false, true);
       renderCooldown();
       const sabotageUsed = gameState.sabotageUsed; // only Data Breach sets this
       // Comms: blocked only if currently active (sabotageType===comms and not expired), or game paused
@@ -1868,18 +1868,22 @@
     showToast('Task rerolled!');
   }
 
-  function renderPlayerList(elId, players, showLives) {
+  function renderPlayerList(elId, players, showLives, allLives) {
     const el = document.getElementById(elId);
     if (!el) return;
     if (!players.length) { el.innerHTML = '<div style="color:var(--muted); font-size:13px; padding:8px 0;">None</div>'; return; }
-    el.innerHTML = players.map(p => `
-      <div class="player-row">
+    el.innerHTML = players.map(p => {
+      const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
+      // allLives: show everyone's lives (impostor view). showLives: only own lives (crewmate view).
+      const showThisLives = (allLives || (showLives && pid === myPlayerId)) && p.lives !== undefined && p.alive;
+      const livesHtml = showThisLives ? `<span style="font-size:12px; color:var(--amber); margin-right:6px;">${'❤️'.repeat(Math.max(0,p.lives))}</span>` : '';
+      return `<div class="player-row">
         <div class="player-dot" style="background:${p.color}"></div>
         <span style="flex:1;">${p.name}</span>
-        ${showLives && p.lives !== undefined && Object.keys(gameState.players).find(k => gameState.players[k].name === p.name) === myPlayerId ? `<span style="font-size:12px; color:var(--amber); margin-right:6px;">${'❤️'.repeat(Math.max(0,p.lives))}</span>` : ''}
+        ${livesHtml}
         ${!p.alive && !p.pendingKill ? '<span class="pill pill-dead">eliminated</span>' : ''}
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   }
 
   function renderKillList(aliveCrew) {
@@ -1888,17 +1892,29 @@
     const now = Date.now();
     const onCooldown = gameState.killCooldownUntil && now < gameState.killCooldownUntil;
     if (!aliveCrew.length) { el.innerHTML = '<div style="color:var(--muted); font-size:14px;">No crewmates left alive.</div>'; return; }
-    el.innerHTML = aliveCrew.filter(p => !p.pendingKill).map(p => {
+    el.innerHTML = aliveCrew.map(p => {
       const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
+      const shielded = (p.shieldUntil || 0) > now;
+      const recovering = !!p.pendingKill || shielded;
+      const livesHtml = p.lives !== undefined ? `<span style="font-size:12px; color:var(--amber); margin-right:6px;">${'❤️'.repeat(Math.max(0,p.lives))}</span>` : '';
+      let btn;
+      if (recovering) {
+        const secs = shielded ? Math.ceil((p.shieldUntil - now)/1000) + 's' : '';
+        btn = `<button class="btn btn-ghost" style="width:auto; padding:6px 14px; font-size:13px;" disabled>🛡 Recovering ${secs}</button>`;
+      } else {
+        btn = `<button class="btn btn-danger" style="width:auto; padding:6px 14px; font-size:13px;" ${onCooldown ? 'disabled' : ''} onclick="openKill('${pid}','${p.name}')">Kill</button>`;
+      }
       return `<div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:0.5px solid var(--border);">
         <div class="player-dot" style="background:${p.color}"></div>
         <span style="flex:1;">${p.name}</span>
-        <button class="btn btn-danger" style="width:auto; padding:6px 14px; font-size:13px;" ${onCooldown ? 'disabled' : ''} onclick="openKill('${pid}','${p.name}')">Kill</button>
+        ${livesHtml}
+        ${btn}
       </div>`;
     }).join('');
   }
 
   let cooldownWasActive = false;
+  let _killListNeedsTick = false;
 
   function startCooldownTick() {
     if (cooldownInterval) clearInterval(cooldownInterval);
@@ -1910,12 +1926,16 @@
       const now = Date.now();
       const until = gameState.killCooldownUntil || 0;
       const isActive = now < until;
-      // When cooldown just expired, re-render kill list to enable buttons
-      if (cooldownWasActive && !isActive) {
-        const players = gameState.players || {};
-        const alive = Object.values(players).filter(p => p.alive);
-        renderKillList(alive.filter(p => p.role !== 'impostor'));
+      const players = gameState.players || {};
+      const aliveCrew = Object.values(players).filter(p => p.alive && p.role !== 'impostor');
+      // Any target currently shielded/recovering?
+      const anyRecovering = aliveCrew.some(p => !!p.pendingKill || (p.shieldUntil || 0) > now);
+      // Re-render when: cooldown just expired, OR a target is recovering (live countdown),
+      // OR recovery just ended (was recovering last tick).
+      if ((cooldownWasActive && !isActive) || anyRecovering || _killListNeedsTick) {
+        renderKillList(aliveCrew);
       }
+      _killListNeedsTick = anyRecovering;
       cooldownWasActive = isActive;
     }, 250);
   }
