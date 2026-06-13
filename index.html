@@ -177,19 +177,6 @@
   </div>
 </div>
 
-<!-- PHOTO REVIEW -->
-<div class="screen" id="screen-photo-review">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-    <div style="font-size:13px; font-weight:600; color:var(--imp); letter-spacing:0.08em;">KILL REVIEW</div>
-    <div style="font-size:22px; font-weight:700; color:var(--imp);" id="review-timer">30s</div>
-  </div>
-  <div style="font-size:15px; font-weight:500; margin-bottom:4px;">Did this kill happen correctly?</div>
-  <div style="font-size:13px; color:var(--muted); margin-bottom:16px;">The photo must show the victim's face clearly.</div>
-  <div id="review-list"></div>
-  <div class="gap"></div>
-  <button class="btn btn-primary" id="btn-done-review" onclick="submitPhotoReviews()">Submit vote</button>
-</div>
-
 <!-- MEETING RECAP -->
 <div class="screen" id="screen-recap">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
@@ -214,12 +201,8 @@
   <div id="trace-banner" style="display:none; background:rgba(155,89,255,0.95); border-radius:var(--radius); padding:10px 14px; text-align:center; font-weight:700; font-size:13px; color:#fff; margin-bottom:16px;">👁 Someone is watching you</div>
   <div id="kill-contest-notice" style="display:none; background:rgba(226,75,74,0.12); border:1px solid rgba(226,75,74,0.5); border-radius:var(--radius); padding:16px; margin-bottom:16px; text-align:center;">
     <div style="font-size:15px; font-weight:600; color:var(--imp); margin-bottom:8px;" id="kill-contest-title">You have been killed!</div>
-    <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">Review the photo. Contest within <span id="contest-timer" style="font-weight:600; color:var(--text);">30s</span> if it's invalid.</div>
     <div id="kill-contest-photo" style="margin-bottom:12px;"></div>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-      <button class="btn btn-ghost" onclick="acceptKill()" style="font-size:13px; padding:8px;">Accept</button>
-      <button class="btn btn-danger" onclick="contestKill()" style="font-size:13px; padding:8px;">Contest</button>
-    </div>
+    <button class="btn btn-ghost" onclick="dismissKillNotice()" style="font-size:13px; padding:8px;">OK</button>
   </div>
   <div id="paused-notice" style="display:none; background:rgba(224,151,42,0.12); border:0.5px solid rgba(224,151,42,0.4); border-radius:var(--radius); padding:12px 16px; font-size:13px; color:var(--amber); margin-bottom:16px; text-align:center; font-weight:600;">⏸ Game paused by admin</div>
   <div class="tab-bar">
@@ -451,11 +434,6 @@
       <input type="number" id="admin-live-emergency" style="flex:1;" min="30" max="600" />
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('emergencyCooldown','admin-live-emergency')">Set</button>
     </div>
-    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Review timer (s)</div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-      <input type="number" id="admin-live-review" style="flex:1;" min="10" max="120" />
-      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('reviewDuration','admin-live-review')">Set</button>
-    </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Kill reveal delay (s)</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
       <input type="number" id="admin-live-reveal-delay" style="flex:1;" min="10" max="300" />
@@ -511,6 +489,11 @@
       <input type="number" id="admin-live-lives" style="flex:1;" min="1" max="5" />
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('lives','admin-live-lives')">Set</button>
     </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Shield after surviving a hit (s)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-hit-shield" style="flex:1;" min="0" max="300" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('hitShieldDuration','admin-live-hit-shield')">Set</button>
+    </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Tasks per player</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
       <input type="number" id="admin-live-tasks" style="flex:1;" min="1" max="8" />
@@ -528,14 +511,6 @@
         <option value="0">Disabled</option>
       </select>
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('faceDetection','admin-live-face')">Set</button>
-    </div>
-    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Photo review during meeting</div>
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:16px;">
-      <select id="admin-live-photo-review" style="flex:1;">
-        <option value="0">Disabled</option>
-        <option value="1">Enabled</option>
-      </select>
-      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('photoReview','admin-live-photo-review')">Set</button>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">🕵️ Stalker role</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
@@ -951,7 +926,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true, hitShieldDuration: 60 };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1337,9 +1312,6 @@
       }
       return;
     }
-    if (!meeting && !voting && currentPhase === 'review') {
-      return; // Stay on review screen until dismissed
-    }
     if (currentPhase === 'recap') {
       return; // Stay on recap screen until dismissed
     }
@@ -1399,17 +1371,10 @@
         document.getElementById('meeting-banner').style.display = 'none';
         document.getElementById('meeting-pill').style.display = 'none';
         if (gameState.meetingActive && isAdmin) {
-          get(ref(db, GAME_REF+'/pendingEvidence')).then(snap => {
-            if (snap.exists() && Object.keys(snap.val()).length > 0) {
-              currentPhase = 'review';
-              showPhotoReview();
-            } else {
-              update(ref(db), {
-                [GAME_REF+'/meetingActive']: false,
-                [GAME_REF+'/votingActive']: true,
-                [GAME_REF+'/voteEndTime']: Date.now() + (settings.voteDuration||60)*1000
-              });
-            }
+          update(ref(db), {
+            [GAME_REF+'/meetingActive']: false,
+            [GAME_REF+'/votingActive']: true,
+            [GAME_REF+'/voteEndTime']: Date.now() + (settings.voteDuration||60)*1000
           });
         }
       }
@@ -1913,7 +1878,6 @@
         <span style="flex:1;">${p.name}</span>
         ${showLives && p.lives !== undefined && Object.keys(gameState.players).find(k => gameState.players[k].name === p.name) === myPlayerId ? `<span style="font-size:12px; color:var(--amber); margin-right:6px;">${'❤️'.repeat(Math.max(0,p.lives))}</span>` : ''}
         ${!p.alive && !p.pendingKill ? '<span class="pill pill-dead">eliminated</span>' : ''}
-        ${p.pendingKill ? '<span class="pill" style="background:rgba(224,151,42,0.15);color:var(--amber);">injured</span>' : ''}
       </div>
     `).join('');
   }
@@ -2302,129 +2266,7 @@
     }, 6000);
   }
 
-  let myPhotoReviews = {};
-
-  let reviewTimerInterval = null;
-
-  function showPhotoReview() {
-    stopSiren(); // Stop emergency siren before review
-    showScreen('screen-photo-review');
-    const evidence = gameState?.pendingEvidence || {};
-    const entries = Object.entries(evidence);
-    const el = document.getElementById('review-list');
-    if (!entries.length) {
-      el.innerHTML = '<div style="color:var(--muted); font-size:14px; text-align:center; padding:24px 0;">No kills to review.</div>';
-      // Auto-proceed if no evidence
-      setTimeout(() => finishReviewAndVote(), 1500);
-      return;
-    }
-    myPhotoReviews = {};
-    el.innerHTML = entries.map(([killId, e]) => {
-      return `<div class="card" style="margin-bottom:16px;">
-        <img src="${e.photo}" style="width:100%; border-radius:8px; display:block; margin-bottom:10px; aspect-ratio:4/3; object-fit:cover;" />
-        <div style="font-weight:600; margin-bottom:12px;">💀 ${e.victimName}</div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-          <button class="btn btn-danger" onclick="adminDecideKill('${killId}','valid')" style="font-size:13px; padding:10px;">💀 Valid — dies</button>
-          <button class="btn btn-success" onclick="adminDecideKill('${killId}','invalid')" style="font-size:13px; padding:10px;">✅ Invalid — survives</button>
-        </div>
-      </div>`;
-    }).join('');
-    // Start review timer
-    let rem = settings.reviewDuration || 30;
-    document.getElementById('review-timer').textContent = rem + 's';
-    if (reviewTimerInterval) clearInterval(reviewTimerInterval);
-    reviewTimerInterval = setInterval(() => {
-      rem--;
-      const el2 = document.getElementById('review-timer');
-      if (el2) el2.textContent = rem + 's';
-      if (rem <= 0) {
-        clearInterval(reviewTimerInterval);
-        submitPhotoReviews();
-      }
-    }, 1000);
-  }
-
-  window.adminDecideKill = async function(killId, verdict) {
-    if (reviewTimerInterval) clearInterval(reviewTimerInterval);
-    const evidence = gameState?.pendingEvidence || {};
-    const e = evidence[killId];
-    if (!e) return;
-    const updates = {};
-    if (verdict === 'invalid') {
-      // Kill contested successfully — restore a life
-      const victim = gameState.players?.[e.victimId];
-      updates[GAME_REF+'/players/'+e.victimId+'/lives'] = (victim?.lives || 0) + 1;
-      updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
-      updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
-      if (e.pendingKillId) updates[GAME_REF+'/pendingKills/'+e.pendingKillId+'/resolved'] = true;
-      showToast(e.victimName + ' — kill invalid, life restored');
-    } else {
-      // Kill confirmed — victim dies regardless of remaining lives
-      updates[GAME_REF+'/players/'+e.victimId+'/alive'] = false;
-      updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
-      updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
-      await push(ref(db, GAME_REF+'/evidence'), e);
-      const kid = e.killId || e.pendingKillId;
-      if (kid) updates[GAME_REF+'/pendingKills/'+kid+'/resolved'] = true;
-      showToast(e.victimName + ' — kill confirmed, eliminated');
-    }
-    updates[GAME_REF+'/pendingEvidence/'+killId] = null;
-    await update(ref(db), updates);
-    // Check if more kills remain
-    const freshSnap = await get(ref(db, GAME_REF+'/pendingEvidence'));
-    if (freshSnap.exists() && Object.keys(freshSnap.val()).length > 0) {
-      const gsSnap = await get(ref(db, GAME_REF));
-      if (gsSnap.exists()) gameState = gsSnap.val();
-      showPhotoReview();
-    } else {
-      finishReviewAndVote();
-    }
-    checkWinConditions();
-  }
-
-  // Legacy alias (kept for safety)
-  window.adminForceReview = window.adminDecideKill;
-
-  window.setReview = function(killId, verdict) {
-    myPhotoReviews[killId] = verdict;
-    document.getElementById('review-valid-'+killId).style.opacity = verdict === 'valid' ? '1' : '0.4';
-    document.getElementById('review-invalid-'+killId).style.opacity = verdict === 'invalid' ? '1' : '0.4';
-  }
-
-  // Called when review timer expires — default all remaining kills to valid (dies)
-  window.submitPhotoReviews = async function() {
-    if (reviewTimerInterval) clearInterval(reviewTimerInterval);
-    const evidence = gameState?.pendingEvidence || {};
-    const entries = Object.entries(evidence);
-    const updates = {};
-    for (const [killId, e] of entries) {
-      // Timer expired — confirm kill, victim dies
-      updates[GAME_REF+'/players/'+e.victimId+'/alive'] = false;
-      updates[GAME_REF+'/players/'+e.victimId+'/pendingKill'] = false;
-      updates[GAME_REF+'/players/'+e.victimId+'/temporarilyDead'] = false;
-      await push(ref(db, GAME_REF+'/evidence'), e);
-      const kid = e.killId || e.pendingKillId;
-      if (kid) updates[GAME_REF+'/pendingKills/'+kid+'/resolved'] = true;
-      updates[GAME_REF+'/pendingEvidence/'+killId] = null;
-    }
-    await update(ref(db), updates);
-    finishReviewAndVote();
-    checkWinConditions();
-  }
-
-  function finishReviewAndVote() {
-    if (reviewTimerInterval) clearInterval(reviewTimerInterval);
-    update(ref(db), {
-      [GAME_REF+'/meetingActive']: false,
-      [GAME_REF+'/votingActive']: true,
-      [GAME_REF+'/voteEndTime']: Date.now() + (settings.voteDuration||60)*1000,
-      [GAME_REF+'/pendingEvidence']: null
-    });
-    currentPhase = 'voting';
-    showVotingScreen();
-  }
-
-  let contestTimerInterval = null;
+  // (photo review / contest system removed)
 
   let killAlertPlayed = new Set();
   let ambulanceCtx = null;
@@ -2507,52 +2349,29 @@
     } catch(e) {}
   }
 
+  let _killNoticeShown = new Set();
+
   function checkPendingKills() {
     if (!gameState || myRole !== 'crewmate') return;
     const pending = gameState.pendingKills || {};
-    const myKill = Object.entries(pending).find(([id, k]) => k.victimId === myPlayerId && k.revealed && !k.resolved && !k.contested);
-    const notice = document.getElementById('kill-contest-notice');
-    if (!myKill) { if (notice) notice.style.display = 'none'; return; }
+    // Find a revealed, unresolved kill against me
+    const myKill = Object.entries(pending).find(([id, k]) => k.victimId === myPlayerId && k.revealed && !k.resolved);
+    if (!myKill) return;
     const [killId, killData] = myKill;
-    // Play alert only once per kill
-    if (!killAlertPlayed.has(killId)) {
-      killAlertPlayed.add(killId);
-      playGunshotSound();
-      // Start ambulance loop for duration of contest window
-      playAmbulanceSound(32000);
-      if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 600, 200, 600]);
+    // Resolve immediately (no contest). Show notice once.
+    if (!_killNoticeShown.has(killId)) {
+      _killNoticeShown.add(killId);
+      resolveMyKill(killId, killData);
     }
-    notice.style.display = 'block';
-    const me = gameState.players?.[myPlayerId];
-    const livesLeft = me?.lives !== undefined ? me.lives : 0;
-    const titleEl = document.getElementById('kill-contest-title');
-    if (titleEl) titleEl.textContent = livesLeft > 0 ? 'You have been shot!' : 'You have been killed!';
-    document.getElementById('kill-contest-photo').innerHTML = `<img src="${killData.photo}" style="width:100%; border-radius:8px;" />`;
-    // Only start timer if not already running for this kill
-    if (notice._killId === killId) return;
-    notice._killId = killId;
-    // 30s contest window
-    let rem = 30;
-    if (contestTimerInterval) clearInterval(contestTimerInterval);
-    contestTimerInterval = setInterval(async () => {
-      rem--;
-      const el = document.getElementById('contest-timer');
-      if (el) el.textContent = rem + 's';
-      if (rem <= 0) {
-        clearInterval(contestTimerInterval);
-        await acceptKillById(killId);
-      }
-    }, 1000);
   }
 
-  async function acceptKillById(killId) {
-    stopAmbulance();
-    const notice = document.getElementById('kill-contest-notice');
-    if (notice) notice.style.display = 'none';
-    if (contestTimerInterval) clearInterval(contestTimerInterval);
-    const killData = gameState.pendingKills?.[killId];
+  async function resolveMyKill(killId, killData) {
     const me = gameState.players?.[myPlayerId];
     const remainingLives = me?.lives !== undefined ? me.lives : 0;
+    // Alert sounds
+    playGunshotSound();
+    if (remainingLives <= 0) playAmbulanceSound(4000);
+    if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 600]);
     const updates = {
       [GAME_REF+'/pendingKills/'+killId+'/resolved']: true,
       [GAME_REF+'/players/'+myPlayerId+'/pendingKill']: false,
@@ -2561,37 +2380,30 @@
     if (remainingLives <= 0) {
       // No lives left — die for real
       updates[GAME_REF+'/players/'+myPlayerId+'/alive'] = false;
+    } else {
+      // Survived — grant temporary shield
+      const shieldDur = (settings.hitShieldDuration || 60) * 1000;
+      updates[GAME_REF+'/players/'+myPlayerId+'/shieldUntil'] = Date.now() + shieldDur;
     }
-    // Always save photo to evidence board regardless of lives
+    // Save photo to evidence board
     if (killData) await push(ref(db, GAME_REF+'/evidence'), killData);
     await update(ref(db), updates);
+    // Show notice with photo
+    const notice = document.getElementById('kill-contest-notice');
+    const titleEl = document.getElementById('kill-contest-title');
+    if (titleEl) titleEl.textContent = remainingLives > 0
+      ? '🩹 You have been shot! Shield active.'
+      : '💀 You have been killed!';
+    const photoEl = document.getElementById('kill-contest-photo');
+    if (photoEl && killData) photoEl.innerHTML = `<img src="${killData.photo}" style="width:100%; border-radius:8px;" />`;
+    if (notice) notice.style.display = 'block';
     checkWinConditions();
   }
 
-  window.acceptKill = async function() {
-    const notice = document.getElementById('kill-contest-notice');
-    const killId = notice._killId;
-    if (!killId) return;
-    await acceptKillById(killId);
-  }
-
-  window.contestKill = async function() {
+  window.dismissKillNotice = function() {
     stopAmbulance();
     const notice = document.getElementById('kill-contest-notice');
-    const killId = notice._killId;
-    if (!killId) return;
-    notice.style.display = 'none';
-    if (contestTimerInterval) clearInterval(contestTimerInterval);
-    await update(ref(db), {
-      [GAME_REF+'/pendingKills/'+killId+'/contested']: true,
-      [GAME_REF+'/pendingKills/'+killId+'/resolved']: false
-    });
-    // Save to pendingEvidence on Firebase so all players see it in next meeting
-    const killData = gameState.pendingKills?.[killId];
-    if (killData) {
-      await push(ref(db, GAME_REF+'/pendingEvidence'), { ...killData, killId, pendingKillId: killId });
-    }
-    showToast('Kill contested — will be discussed at next meeting', 4000);
+    if (notice) notice.style.display = 'none';
   }
 
   let sirenNode = null;
@@ -3207,7 +3019,7 @@
     }
     const killData = {
       victimId: killTarget, victimName, photo: killPhotoData,
-      killedAt: Date.now(), revealAt: Date.now() + 60000, contested: false, resolved: false
+      killedAt: Date.now(), resolved: false
     };
     // Reduce victim's lives and mark as pending
     const victim = gameState.players[killTarget];
@@ -3993,7 +3805,6 @@
     document.getElementById('admin-live-meeting').value = settings.meetingDuration || 300;
     document.getElementById('admin-live-vote').value = settings.voteDuration || 60;
     document.getElementById('admin-live-emergency').value = settings.emergencyCooldown || 180;
-    document.getElementById('admin-live-review').value = settings.reviewDuration || 30;
     document.getElementById('admin-live-reveal-delay').value = settings.killRevealDelay || 60;
     document.getElementById('admin-live-reroll').value = settings.rerollCooldown || 60;
     const hd = document.getElementById('admin-live-hacking-dur');
@@ -4003,11 +3814,11 @@
     document.getElementById('admin-live-quiz-pass').value = settings.quizPassScore || 4;
     document.getElementById('admin-live-radar-range').value = settings.radarRange || 500;
     document.getElementById('admin-live-lives').value = settings.lives || 2;
+    document.getElementById('admin-live-hit-shield').value = settings.hitShieldDuration || 60;
     document.getElementById('admin-live-tasks').value = settings.tasksPerPlayer || 3;
     document.getElementById('admin-live-quests-win').value = settings.questsToWin || 3;
     document.getElementById('admin-live-game-password').value = settings.gamePassword || '';
     document.getElementById('admin-live-face').value = settings.faceDetection !== undefined ? settings.faceDetection : 1;
-    document.getElementById('admin-live-photo-review').value = settings.photoReview || 0;
     document.getElementById('admin-live-stalker').value = (settings.stalkerEnabled != 0) ? 1 : 0;
     document.getElementById('admin-live-sabotage-comms').value = settings.sabotageCommsDuration || 420;
     document.getElementById('admin-live-sabotage-breach').value = settings.sabotageBreachDuration || 300;
