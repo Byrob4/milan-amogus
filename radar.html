@@ -612,7 +612,6 @@
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; }
   .cell { border: 0.5px solid #ccc; padding: 10px 8px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; page-break-inside: avoid; break-inside: avoid; }
   .cell-name { font-size: 13px; font-weight: 700; text-align: center; margin-bottom: 6px; letter-spacing: 0.03em; text-transform: uppercase; }
-  .cell-url { font-size: 8px; color: #666; text-align: center; margin-top: 5px; word-break: break-all; }
   @media print {
     body { margin: 0; }
     .grid { width: 100%; }
@@ -632,7 +631,7 @@ locs.forEach((loc, i) => {
   const url = origin + '?location=' + encodeURIComponent(loc.name);
   const cell = document.createElement('div');
   cell.className = 'cell';
-  cell.innerHTML = '<div class="cell-name">' + loc.name + '</div><div id="qr'+i+'"></div><div class="cell-url">' + url + '</div>';
+  cell.innerHTML = '<div class="cell-name">' + loc.name + '</div><div id="qr'+i+'"></div>';
   document.getElementById('qr-grid').appendChild(cell);
   setTimeout(() => {
     new QRCode(document.getElementById('qr'+i), { text: url, width: 140, height: 140, colorDark:'#000', colorLight:'#fff' });
