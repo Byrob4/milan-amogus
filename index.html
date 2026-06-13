@@ -214,6 +214,7 @@
     <div class="tab active" onclick="switchTab('tasks')">Tasks</div>
     <div class="tab" onclick="switchTab('map')">Map</div>
     <div class="tab" onclick="switchTab('players')">Players</div>
+    <div class="tab" onclick="switchTab('stalk')" id="tab-stalk-btn" style="display:none">🕵️ Stalk</div>
     <div class="tab" onclick="switchTab('vote')" id="tab-vote-btn" style="display:none">Vote</div>
   </div>
   <div id="tab-tasks">
@@ -239,6 +240,13 @@
     <div class="spacer"></div>
     <div class="label">Eliminated</div>
     <div class="card" id="players-dead"></div>
+  </div>
+  <div id="tab-stalk" style="display:none">
+    <div class="label">🕵️ Stalker</div>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:16px;">Pick someone to follow. If they get attacked, you'll receive the kill photo. You can change your target anytime.</div>
+    <div id="stalk-current" style="display:none; background:rgba(224,151,42,0.12); border:0.5px solid rgba(224,151,42,0.4); border-radius:var(--radius); padding:12px 16px; font-size:14px; color:var(--amber); margin-bottom:16px; text-align:center; font-weight:600;"></div>
+    <div class="label">Choose target</div>
+    <div id="stalk-target-list"></div>
   </div>
   <div id="tab-map" style="display:none">
     <div style="text-align:center; position:relative; display:inline-block; width:100%;">
@@ -517,6 +525,14 @@
       </select>
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('photoReview','admin-live-photo-review')">Set</button>
     </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">🕵️ Stalker role</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <select id="admin-live-stalker" style="flex:1;">
+        <option value="1">Enabled</option>
+        <option value="0">Disabled</option>
+      </select>
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('stalkerEnabled','admin-live-stalker')">Set</button>
+    </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Game password (players must enter to join)</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:16px;">
       <input type="text" id="admin-live-game-password" style="flex:1;" placeholder="Empty = no password" />
@@ -568,6 +584,17 @@
     <button class="btn btn-primary" id="btn-save-location" onclick="saveLocation()" disabled>Save location</button>
     <div class="spacer"></div>
     <button class="btn btn-ghost" onclick="closeOverlay('overlay-add-location')">Cancel</button>
+  </div>
+</div>
+
+<!-- OVERLAY: Stalker alert (target attacked) -->
+<div class="overlay" id="overlay-stalk-alert">
+  <div class="overlay-box" style="text-align:center;">
+    <div style="font-size:36px; margin-bottom:8px;">🕵️</div>
+    <h3 style="margin-bottom:4px;">Your target was attacked!</h3>
+    <div style="font-size:13px; color:var(--muted); margin-bottom:12px;" id="stalk-alert-name"></div>
+    <div id="stalk-alert-photo" style="margin-bottom:16px;"></div>
+    <button class="btn btn-ghost" onclick="dismissStalkAlert()">Close</button>
   </div>
 </div>
 
@@ -912,7 +939,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '' };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1143,7 +1170,16 @@
       updates[GAME_REF + '/players/' + id + '/role'] = impostorIds.has(id) ? 'impostor' : 'crewmate';
       updates[GAME_REF + '/players/' + id + '/lives'] = settings.lives || 2;
       updates[GAME_REF + '/players/' + id + '/missions'] = {};
+      updates[GAME_REF + '/players/' + id + '/isStalker'] = false;
+      updates[GAME_REF + '/players/' + id + '/stalkTarget'] = null;
+      updates[GAME_REF + '/players/' + id + '/stalkAlert'] = null;
     });
+    // Assign stalker to a random crewmate (if enabled and enough crewmates)
+    const crewmateIds = shuffledIds.filter(id => !impostorIds.has(id));
+    if (settings.stalkerEnabled != 0 && crewmateIds.length >= 1) {
+      const stalkerId = crewmateIds[Math.floor(Math.random() * crewmateIds.length)];
+      updates[GAME_REF + '/players/' + stalkerId + '/isStalker'] = true;
+    }
     updates[GAME_REF + '/impostorCount'] = impostorCount;
     updates[GAME_REF + '/questsToWin'] = settings.questsToWin || 3;
     updates[GAME_REF + '/state'] = 'playing';
@@ -1192,12 +1228,16 @@
 
   function showRoleReveal() {
     const role = myRole;
-    document.getElementById('role-icon').textContent = role === 'impostor' ? '🔴' : '🔵';
-    document.getElementById('role-name').textContent = role === 'impostor' ? 'Impostor' : 'Crewmate';
+    const me = gameState?.players?.[myPlayerId];
+    const amStalker = me?.isStalker;
+    document.getElementById('role-icon').textContent = role === 'impostor' ? '🔴' : (amStalker ? '🕵️' : '🔵');
+    document.getElementById('role-name').textContent = role === 'impostor' ? 'Impostor' : (amStalker ? 'Stalker' : 'Crewmate');
     document.getElementById('role-desc').textContent = role === 'impostor'
       ? 'Eliminate crewmates. Survive the vote. Win.'
-      : 'Complete your tasks. Find the impostor. Survive.';
-    document.getElementById('role-name').style.color = role === 'impostor' ? 'var(--imp)' : 'var(--crew)';
+      : (amStalker
+          ? 'You are a crewmate with a secret: pick someone to follow. If they get attacked, you\'ll see the photo.'
+          : 'Complete your tasks. Find the impostor. Survive.');
+    document.getElementById('role-name').style.color = role === 'impostor' ? 'var(--imp)' : (amStalker ? 'var(--amber)' : 'var(--crew)');
     if (role === 'impostor' && gameState) {
       const fellowImpostors = Object.values(gameState.players||{})
         .filter(p => p.role === 'impostor' && p.name !== myName);
@@ -1438,6 +1478,17 @@
       const commsInlineEl = document.getElementById('comms-sabotage-inline');
       if (commsInlineEl) commsInlineEl.style.display = commsBlocked ? 'block' : 'none';
       document.getElementById('tab-vote-btn').style.display = 'none';
+      // Show stalk tab only for the stalker
+      const stalkBtn = document.getElementById('tab-stalk-btn');
+      if (stalkBtn) stalkBtn.style.display = me.isStalker ? '' : 'none';
+      // Stalker: detect new kill alert on followed target
+      if (me.isStalker && me.stalkAlert && me.stalkAlert.at && me.stalkAlert.at !== _lastStalkAlert) {
+        _lastStalkAlert = me.stalkAlert.at;
+        document.getElementById('stalk-alert-name').textContent = '💀 ' + me.stalkAlert.victimName + ' was attacked';
+        document.getElementById('stalk-alert-photo').innerHTML = `<img src="${me.stalkAlert.photo}" style="width:100%; border-radius:8px;" />`;
+        document.getElementById('overlay-stalk-alert').classList.add('active');
+        if (navigator.vibrate) navigator.vibrate([200,100,200]);
+      }
     } else {
       document.getElementById('imp-paused-notice').style.display = isPaused ? 'block' : 'none';
       renderKillList(alive.filter(p => p.role !== 'impostor'));
@@ -1546,6 +1597,11 @@
   // Module-level flag: track last sabotage type we flashed to avoid re-flashing on re-renders
   let _lastFlashedSabotage = null;
   let _breachResolveOpen = false;
+  let _lastStalkAlert = 0;
+
+  window.dismissStalkAlert = function() {
+    document.getElementById('overlay-stalk-alert').classList.remove('active');
+  }
 
   // Admin overlay: verify who arrived for Data Breach
   function openBreachResolve() {
@@ -3168,6 +3224,19 @@
       [GAME_REF+'/killCooldownUntil']: Date.now() + (settings.cooldown||120)*1000
     });
     const killRef = await push(ref(db, GAME_REF+'/pendingKills'), killData);
+    // Notify any stalker following this victim — deliver the kill photo
+    const allPlayers = gameState.players || {};
+    for (const [pid, p] of Object.entries(allPlayers)) {
+      if (p.isStalker && p.alive && p.stalkTarget === killData.victimId) {
+        await update(ref(db, GAME_REF+'/players/'+pid), {
+          stalkAlert: {
+            victimName: killData.victimName,
+            photo: killData.photo,
+            at: Date.now()
+          }
+        });
+      }
+    }
     killTarget = null; killPhotoData = null;
     showToast('Kill initiated — victim notified in ' + (settings.killRevealDelay||60) + 's');
     // After killRevealDelay, reveal kill to victim
@@ -3735,7 +3804,7 @@
   }
 
   window.switchTab = function(tab) {
-    ['tasks','map','players','vote'].forEach(t => {
+    ['tasks','map','players','stalk','vote'].forEach(t => {
       const el = document.getElementById('tab-'+t);
       if (el) el.style.display = t===tab ? 'block' : 'none';
       const btn = document.querySelector(`[onclick="switchTab('${t}')"]`);
@@ -3745,11 +3814,42 @@
       document.getElementById('tab-vote-btn').style.display = '';
       renderVoting();
     }
+    if (tab==='stalk') renderStalkTab();
     if (tab==='map') {
       startMapRefresh('radar-canvas', 'radar-legend');
     } else {
       stopMapRefresh();
     }
+  }
+
+  function renderStalkTab() {
+    const me = gameState?.players?.[myPlayerId];
+    if (!me?.isStalker) return;
+    const players = gameState.players || {};
+    const currentTarget = me.stalkTarget;
+    const currentEl = document.getElementById('stalk-current');
+    if (currentTarget && players[currentTarget]) {
+      currentEl.style.display = 'block';
+      currentEl.textContent = '👁 Currently following: ' + players[currentTarget].name;
+    } else {
+      currentEl.style.display = 'none';
+    }
+    // List of alive players (excluding self)
+    const candidates = Object.entries(players).filter(([id, p]) => id !== myPlayerId && p.alive);
+    const listEl = document.getElementById('stalk-target-list');
+    if (!candidates.length) { listEl.innerHTML = '<div style="color:var(--muted); font-size:13px; padding:8px 0;">No one to follow.</div>'; return; }
+    listEl.innerHTML = candidates.map(([id, p]) => `
+      <div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:0.5px solid var(--border);">
+        <div class="player-dot" style="background:${p.color}"></div>
+        <span style="flex:1;">${p.name}</span>
+        <button class="btn ${currentTarget===id?'btn-amber':'btn-ghost'}" style="width:auto; padding:6px 14px; font-size:13px;" onclick="setStalkTarget('${id}')">${currentTarget===id?'✓ Following':'Follow'}</button>
+      </div>`).join('');
+  }
+
+  window.setStalkTarget = async function(targetId) {
+    await update(ref(db), { [GAME_REF+'/players/'+myPlayerId+'/stalkTarget']: targetId });
+    showToast('Now following ' + (gameState.players?.[targetId]?.name || 'player'));
+    renderStalkTab();
   }
 
   window.switchImpTab = function(tab) {
@@ -3896,6 +3996,7 @@
     document.getElementById('admin-live-game-password').value = settings.gamePassword || '';
     document.getElementById('admin-live-face').value = settings.faceDetection !== undefined ? settings.faceDetection : 1;
     document.getElementById('admin-live-photo-review').value = settings.photoReview || 0;
+    document.getElementById('admin-live-stalker').value = (settings.stalkerEnabled != 0) ? 1 : 0;
     document.getElementById('admin-live-sabotage-comms').value = settings.sabotageCommsDuration || 420;
     document.getElementById('admin-live-sabotage-breach').value = settings.sabotageBreachDuration || 300;
     document.getElementById('admin-live-sabotage-rally').value = settings.sabotageRallyLocation || '';
@@ -3989,6 +4090,9 @@
         updates[GAME_REF+'/players/'+id+'/pendingKill'] = false;
         updates[GAME_REF+'/players/'+id+'/temporarilyDead'] = false;
         updates[GAME_REF+'/players/'+id+'/lives'] = null;
+        updates[GAME_REF+'/players/'+id+'/isStalker'] = false;
+        updates[GAME_REF+'/players/'+id+'/stalkTarget'] = null;
+        updates[GAME_REF+'/players/'+id+'/stalkAlert'] = null;
       });
     }
     await update(ref(db), updates);
@@ -4410,6 +4514,9 @@
         updates[GAME_REF+'/players/'+id+'/pendingKill'] = false;
         updates[GAME_REF+'/players/'+id+'/temporarilyDead'] = false;
         updates[GAME_REF+'/players/'+id+'/lives'] = null;
+        updates[GAME_REF+'/players/'+id+'/isStalker'] = false;
+        updates[GAME_REF+'/players/'+id+'/stalkTarget'] = null;
+        updates[GAME_REF+'/players/'+id+'/stalkAlert'] = null;
       });
     }
     await update(ref(db), updates);
