@@ -2172,6 +2172,7 @@
     if (voteTimerInterval) clearInterval(voteTimerInterval);
     if (meetingTimerInterval) clearInterval(meetingTimerInterval);
     if (cooldownInterval) clearInterval(cooldownInterval);
+    stopMapRefresh();
     document.getElementById('meeting-banner').style.display = 'none';
     document.getElementById('meeting-pill').style.display = 'none';
     const winner = gameState.winner;
@@ -3505,9 +3506,7 @@
       hackingDynamicRadius = null;
       const tb = document.getElementById('trace-banner');
       if (tb) tb.style.display = 'none';
-      // Force radar redraw to remove tracked dots
-      const impMap = document.getElementById('imp-tab-map');
-      if (impMap && impMap.style.display !== 'none') drawRadar('imp-radar-canvas', 'imp-radar-legend');
+      // Radar redraw handled by the rAF loop; tracked dots clear on next frame
     }
   }, 500);
 
@@ -3518,13 +3517,7 @@
       (pos) => {
         myLatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         pushMyPosition();
-        const s1 = document.getElementById('map-gps-status');
-        const s2 = document.getElementById('imp-map-gps-status');
-        // Redraw radar if map tab is visible
-        const mapTab = document.getElementById('tab-map');
-        const impMapTab = document.getElementById('imp-tab-map');
-        if (mapTab && mapTab.style.display !== 'none') drawRadar('radar-canvas', 'radar-legend');
-        if (impMapTab && impMapTab.style.display !== 'none') drawRadar('imp-radar-canvas', 'imp-radar-legend');
+        // Radar redraw is handled by the requestAnimationFrame loop when the map tab is visible
       },
       () => {
         const s1 = document.getElementById('map-gps-status');
@@ -3547,19 +3540,27 @@
     return { dist, bearing };
   }
 
-  async function drawRadar(canvasId, legendId) {
-    // Ensure locations are loaded
-    if (!allLocations.length) await loadLocations();
-
+  function drawRadar(canvasId, legendId, sweep) {
+    sweep = sweep || 0;
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
-    // Set canvas size based on screen width
-    const size = Math.min(window.innerWidth - 40, 320);
-    canvas.width = size;
-    canvas.height = size;
+    // Stable available width: matches the .screen container (max-width 480, 20px side padding)
+    const contentW = Math.min(window.innerWidth, 480) - 40;
+    const size = Math.max(220, Math.min(contentW, 460));
+    // High-DPI: render the backing store at devicePixelRatio for crisp output
+    const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 3));
+    const backing = Math.round(size * dpr);
+    // Always enforce both CSS size and backing-store size (avoids any stale/default state)
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+    if (canvas.width !== backing) canvas.width = backing;
+    if (canvas.height !== backing) canvas.height = backing;
     const ctx = canvas.getContext('2d');
-    const W = canvas.width, H = canvas.height;
-    const cx = W/2, cy = H/2, r = W/2 - 14;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // all drawing in CSS px
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    const W = size, H = size;
+    const cx = W/2, cy = H/2, r = W/2 - 16;
     const range = settings.radarRange || 500;
     const active = allLocations.filter(l => l.active !== false && l.lat && l.lng);
 
@@ -3569,26 +3570,55 @@
     ctx.save();
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2*Math.PI); ctx.clip();
 
-    // Background
-    ctx.fillStyle = '#060d14';
+    // Background — deep radial
+    const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    bg.addColorStop(0, '#0a1a14');
+    bg.addColorStop(1, '#050b10');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
-    // Sweep animation overlay (static green sector for videogame feel)
+    // Center glow
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    grad.addColorStop(0, 'rgba(0,255,80,0.07)');
-    grad.addColorStop(1, 'rgba(0,255,80,0)');
+    grad.addColorStop(0, 'rgba(0,255,120,0.10)');
+    grad.addColorStop(1, 'rgba(0,255,120,0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
+
+    // Rotating sweep beam (trailing gradient sector)
+    const beamWidth = Math.PI / 3; // 60° trail
+    ctx.save();
+    ctx.translate(cx, cy);
+    // Draw trailing wedge as a series of fading slices
+    const slices = 28;
+    for (let i = 0; i < slices; i++) {
+      const a0 = sweep - (beamWidth * i / slices);
+      const a1 = sweep - (beamWidth * (i + 1) / slices);
+      const alpha = 0.18 * (1 - i / slices);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, r, a0 - Math.PI/2, a1 - Math.PI/2, true);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(0,255,120,${alpha})`;
+      ctx.fill();
+    }
+    // Leading bright edge
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(sweep - Math.PI/2) * r, Math.sin(sweep - Math.PI/2) * r);
+    ctx.strokeStyle = 'rgba(120,255,180,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
 
     // Grid circles
     [0.33, 0.66, 1].forEach((f, i) => {
       ctx.beginPath(); ctx.arc(cx, cy, r*f, 0, 2*Math.PI);
-      ctx.strokeStyle = i===2 ? 'rgba(0,255,80,0.35)' : 'rgba(0,255,80,0.12)';
+      ctx.strokeStyle = i===2 ? 'rgba(0,255,120,0.40)' : 'rgba(0,255,120,0.13)';
       ctx.lineWidth = i===2 ? 1.5 : 1; ctx.stroke();
     });
 
     // Cross hairs
-    ctx.strokeStyle = 'rgba(0,255,80,0.12)'; ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0,255,120,0.13)'; ctx.lineWidth = 1;
     ctx.setLineDash([4,6]);
     ctx.beginPath(); ctx.moveTo(cx-r, cy); ctx.lineTo(cx+r, cy); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(cx, cy-r); ctx.lineTo(cx, cy+r); ctx.stroke();
@@ -3598,15 +3628,14 @@
 
     // North label
     ctx.fillStyle = 'rgba(0,255,80,0.5)'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('N', cx, cy - r - 3);
+    ctx.fillText('N', cx, cy - r - 4);
 
-    // Range rings labels
+    // Range ring labels
     ctx.fillStyle = 'rgba(0,255,80,0.35)'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
     ctx.fillText(Math.round(range/3)+'m', cx+4, cy - r*0.33 - 2);
     ctx.fillText(Math.round(range*2/3)+'m', cx+4, cy - r*0.66 - 2);
 
-    // Determine center point for radar
-    // If we have GPS use it, otherwise center on midpoint of all locations
+    // Determine center point
     let originLat, originLng, hasGPS = false;
     if (myLatLng) {
       originLat = myLatLng.lat; originLng = myLatLng.lng; hasGPS = true;
@@ -3614,40 +3643,47 @@
       originLat = active.reduce((s,l)=>s+l.lat,0)/active.length;
       originLng = active.reduce((s,l)=>s+l.lng,0)/active.length;
     } else {
-      // No data at all — show empty radar
       const legendEl = document.getElementById(legendId);
       if (legendEl) legendEl.innerHTML = '<div style="color:var(--muted); font-size:13px; text-align:center; padding:8px;">No locations added yet</div>';
       return;
     }
 
-    // Draw locations (north always up)
+    // Collect labels to place after all markers (only players + me; locations are numbered)
+    const labels = [];
     const legendItems = [];
-    active.forEach(loc => {
+
+    // Draw locations as NUMBERED badges (north always up) — numbers map to legend, no text overlap
+    active.forEach((loc, idx) => {
+      const num = idx + 1;
       const { dist, bearing } = gpsToMetres(originLat, originLng, loc.lat, loc.lng);
       const scale = Math.min(dist / range, 0.97);
-      // bearing: 0=north(up), positive=clockwise
       const px = cx + Math.sin(bearing) * r * scale;
       const py = cy - Math.cos(bearing) * r * scale;
 
-      // Pin shape for location
+      // "Ping" brightness if the sweep beam recently passed this marker's angle
+      const markerAngle = ((bearing % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+      const sweepNorm = ((sweep % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+      let behind = sweepNorm - markerAngle; if (behind < 0) behind += 2*Math.PI;
+      const ping = behind < Math.PI/2 ? (1 - behind / (Math.PI/2)) : 0; // 0..1 fades over 90°
+
       const pinColor = '#E0972A';
-      // Pin circle (head)
-      ctx.beginPath(); ctx.arc(px, py - 10, 7, 0, 2*Math.PI);
+      // Glow halo (stronger right after sweep passes)
+      const haloR = 12 + ping * 8;
+      const halo = ctx.createRadialGradient(px, py, 0, px, py, haloR);
+      halo.addColorStop(0, `rgba(224,151,42,${0.25 + ping*0.5})`);
+      halo.addColorStop(1, 'rgba(224,151,42,0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(px, py, haloR, 0, 2*Math.PI); ctx.fill();
+      // Badge circle with number
+      ctx.beginPath(); ctx.arc(px, py, 10, 0, 2*Math.PI);
       ctx.fillStyle = pinColor; ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
-      // Pin stem
-      ctx.beginPath(); ctx.moveTo(px, py - 3); ctx.lineTo(px, py + 4);
-      ctx.strokeStyle = pinColor; ctx.lineWidth = 2.5; ctx.stroke();
-      // Inner dot
-      ctx.beginPath(); ctx.arc(px, py - 10, 3, 0, 2*Math.PI);
-      ctx.fillStyle = '#fff'; ctx.fill();
-      // Name label (below pin)
-      ctx.fillStyle = pinColor; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
-      ctx.strokeStyle = '#060d14'; ctx.lineWidth = 3;
-      ctx.strokeText(loc.name, px, py + 16);
-      ctx.fillText(loc.name, px, py + 16);
+      ctx.fillStyle = '#1a1205'; ctx.font = '700 11px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(num), px, py + 0.5);
+      ctx.textBaseline = 'alphabetic';
 
-      if (hasGPS) legendItems.push({ name: loc.name, dist: Math.round(dist) });
+      legendItems.push({ num, name: loc.name, dist: hasGPS ? Math.round(dist) : null });
     });
 
     // Tracked players during hacking (impostor only)
@@ -3665,62 +3701,131 @@
         glow.addColorStop(1, 'rgba(155,89,255,0)');
         ctx.fillStyle = glow;
         ctx.beginPath(); ctx.arc(px, py, 14, 0, 2*Math.PI); ctx.fill();
-        // Player circle
         ctx.beginPath(); ctx.arc(px, py, 8, 0, 2*Math.PI);
         ctx.fillStyle = p.color || '#9B59FF'; ctx.fill();
         ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-        // Name
-        ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
-        ctx.strokeStyle = '#060d14'; ctx.lineWidth = 3;
-        ctx.strokeText(p.name, px, py - 14);
-        ctx.fillText(p.name, px, py - 14);
+        labels.push({ text: p.name, x: px, anchorY: py - 12, color: '#D7BBFF', prefer: 'up' });
       });
     }
 
-    // My position dot (only if GPS)
+    // My position dot (only if GPS) — pulsing
     if (hasGPS) {
       const myP = gameState?.players?.[myPlayerId];
       const myDotColor = myP?.color || '#E24B4A';
-      // Outer pulse ring
-      ctx.beginPath(); ctx.arc(cx, cy, 13, 0, 2*Math.PI);
-      ctx.strokeStyle = myDotColor + '55'; ctx.lineWidth = 2; ctx.stroke();
-      // Main circle
+      const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 400);
+      // Expanding pulse ring
+      ctx.beginPath(); ctx.arc(cx, cy, 11 + pulse*6, 0, 2*Math.PI);
+      ctx.strokeStyle = myDotColor + Math.round(40 + pulse*60).toString(16).padStart(2,'0');
+      ctx.lineWidth = 2; ctx.stroke();
       ctx.beginPath(); ctx.arc(cx, cy, 8, 0, 2*Math.PI);
       ctx.fillStyle = myDotColor; ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-      // My name
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
-      ctx.strokeStyle = '#060d14'; ctx.lineWidth = 3;
-      ctx.strokeText(myName || 'You', cx, cy - 15);
-      ctx.fillText(myName || 'You', cx, cy - 15);
+      labels.push({ text: 'YOU', x: cx, anchorY: cy - 14, color: '#fff', prefer: 'up' });
     }
+
+    // ---- Label placement with collision avoidance (players + me only) ----
+    placeRadarLabels(ctx, labels, W, H);
 
     // Status text
     const statusEl = document.getElementById(canvasId === 'radar-canvas' ? 'map-gps-status' : 'imp-map-gps-status');
     if (statusEl) statusEl.textContent = hasGPS ? 'GPS active — north up' : 'No GPS — showing all locations';
 
-    // Legend
-    const legendEl = document.getElementById(legendId);
-    if (legendEl) {
-      legendEl.innerHTML = legendItems.length
-        ? legendItems.sort((a,b)=>a.dist-b.dist).map(l => `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:0.5px solid var(--border);font-size:13px;"><span style="color:#378ADD;">●</span> <span style="flex:1; margin-left:6px;">${l.name}</span><span style="color:var(--muted);">${l.dist}m</span></div>`).join('')
-        : active.length
-        ? active.map(l => `<div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-size:13px;color:#378ADD;">● ${l.name}</div>`).join('')
-        : '<div style="color:var(--muted); font-size:13px; text-align:center; padding:8px;">No locations added yet</div>';
+    // Legend (numbered to match radar badges) — throttled, not every frame
+    const nowL = Date.now();
+    if (nowL - _radarLegendLast > 1000) {
+      _radarLegendLast = nowL;
+      const legendEl = document.getElementById(legendId);
+      if (legendEl) {
+        const sorted = legendItems.slice().sort((a,b) => (a.dist??9e9) - (b.dist??9e9));
+        legendEl.innerHTML = legendItems.length
+          ? sorted.map(l => `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--border);font-size:13px;">
+              <span style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#E0972A;color:#1a1205;font-weight:700;font-size:11px;">${l.num}</span>
+              <span style="flex:1;">${l.name}</span>
+              ${l.dist!=null?`<span style="color:var(--muted);">${l.dist}m</span>`:''}
+            </div>`).join('')
+          : '<div style="color:var(--muted); font-size:13px; text-align:center; padding:8px;">No locations added yet</div>';
+      }
     }
   }
+  let _radarLegendLast = 0;
+
+  // Place labels avoiding overlaps: pill background + outlined text, nudged vertically.
+  function placeRadarLabels(ctx, labels, W, H) {
+    const fontPx = 11, padX = 5, padY = 3, lineH = fontPx + padY*2, gap = 2;
+    ctx.font = '600 ' + fontPx + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const placed = [];
+    // Place nearer-to-center / earlier labels first (stable order)
+    labels.forEach(L => {
+      const tw = Math.min(ctx.measureText(L.text).width, W - 16);
+      const w = tw + padX*2, h = lineH;
+      const dir = L.prefer === 'up' ? -1 : 1;
+      let cyL = L.anchorY + dir * (h/2 + 2);
+      // Try increasing offsets, alternating outward, until no collision
+      let finalY = cyL, ok = false;
+      for (let step = 0; step < 14 && !ok; step++) {
+        const tryY = cyL + dir * step * (lineH + gap);
+        const box = { x: L.x - w/2, y: tryY - h/2, w, h };
+        // clamp horizontally
+        if (box.x < 4) box.x = 4;
+        if (box.x + w > W - 4) box.x = W - 4 - w;
+        // clamp vertically
+        if (box.y < 4) box.y = 4;
+        if (box.y + h > H - 4) box.y = H - 4 - h;
+        const collides = placed.some(p => !(box.x + box.w < p.x || box.x > p.x + p.w || box.y + box.h < p.y || box.y > p.y + p.h));
+        if (!collides) { finalY = box.y + h/2; box._final = true; placed.push(box); ok = true; }
+        else if (step === 13) { placed.push(box); finalY = box.y + h/2; } // give up: place anyway
+      }
+      // Recompute clamped x for drawing
+      let drawX = L.x;
+      if (drawX - w/2 < 4) drawX = 4 + w/2;
+      if (drawX + w/2 > W - 4) drawX = W - 4 - w/2;
+      // Pill background
+      const bx = drawX - w/2, by = finalY - h/2;
+      ctx.fillStyle = 'rgba(6,13,20,0.82)';
+      roundRect(ctx, bx, by, w, h, 5); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 1; roundRect(ctx, bx, by, w, h, 5); ctx.stroke();
+      // Text
+      ctx.fillStyle = L.color;
+      ctx.fillText(L.text, drawX, finalY, W - 16);
+    });
+    ctx.textBaseline = 'alphabetic'; // reset
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
 
 
 
-  let mapRefreshInterval = null;
-  function startMapRefresh(canvasId, legendId) {
-    if (mapRefreshInterval) clearInterval(mapRefreshInterval);
+  let _radarRaf = null, _radarSweepAngle = 0, _radarLastFrame = 0;
+  async function startMapRefresh(canvasId, legendId) {
+    stopMapRefresh();
     startGPS();
-    drawRadar(canvasId, legendId);
-    mapRefreshInterval = setInterval(() => drawRadar(canvasId, legendId), 3000);
+    if (!allLocations.length) await loadLocations();
+    _radarLegendLast = 0; // force immediate legend render
+    const FRAME_MS = 33; // ~30fps
+    const SWEEP_SPEED = 1.6; // radians/sec
+    const loop = (ts) => {
+      _radarRaf = requestAnimationFrame(loop);
+      if (ts - _radarLastFrame < FRAME_MS) return;
+      const dt = _radarLastFrame ? (ts - _radarLastFrame) / 1000 : 0;
+      _radarLastFrame = ts;
+      _radarSweepAngle = (_radarSweepAngle + SWEEP_SPEED * dt) % (2 * Math.PI);
+      drawRadar(canvasId, legendId, _radarSweepAngle);
+    };
+    _radarRaf = requestAnimationFrame(loop);
   }
   function stopMapRefresh() {
-    if (mapRefreshInterval) { clearInterval(mapRefreshInterval); mapRefreshInterval = null; }
+    if (_radarRaf) { cancelAnimationFrame(_radarRaf); _radarRaf = null; }
+    _radarLastFrame = 0;
   }
 
   window.switchTab = function(tab) {
