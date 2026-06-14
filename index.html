@@ -215,10 +215,15 @@
   <div id="tab-tasks">
     <div class="label" id="progress-label">Your quest progress</div>
     <div id="spy-hint" style="display:none; background:rgba(55,138,221,0.10); border:0.5px solid rgba(55,138,221,0.4); border-radius:var(--radius); padding:11px 14px; margin-bottom:14px; font-size:13px; color:#85B7EB;">🛰 <b>Spy:</b> scan the <span id="spy-hint-loc">Assembly Point</span> QR to reveal every player on a live radar.</div>
+    <div id="investigator-box" style="display:none; background:rgba(201,162,39,0.10); border:0.5px solid rgba(201,162,39,0.45); border-radius:var(--radius); padding:11px 14px; margin-bottom:14px;">
+      <div style="font-size:13px; color:#E6C84F; margin-bottom:8px;">🔍 <b>Investigator</b> — <span id="inv-status">Complete tasks to charge your power.</span></div>
+      <button class="btn btn-ghost" id="inv-use-btn" onclick="useInvestigate()" style="width:100%;">🔍 Investigate</button>
+    </div>
     <div class="progress-bar" style="margin-bottom:16px;"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
     <div id="tasks-list"></div>
     <div class="spacer"></div>
-    <button class="btn btn-primary" onclick="openQRScanner()" style="margin-bottom:8px;">📷 Scan location QR</button>
+    <button class="btn btn-primary" id="btn-scan-qr" onclick="openQRScanner()" style="margin-bottom:8px;">📷 Scan location QR</button>
+    <div id="quest-prox-hint" style="display:none; font-size:13px; color:#85B7EB; background:rgba(55,138,221,0.08); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:8px; text-align:center;">📍 Walk near a location to unlock its quest automatically.</div>
     <div class="spacer"></div>
     <button class="btn btn-ghost" onclick="openCoopJoin()">👥 Join a co-op</button>
     <div class="spacer"></div>
@@ -276,6 +281,7 @@
     <div class="tab" onclick="switchImpTab('map')">Map</div>
     <div class="tab" onclick="switchImpTab('sabotage')">Sabotage</div>
     <div class="tab" onclick="switchImpTab('players')">Players</div>
+    <div class="tab" onclick="switchImpTab('chat')" id="imp-chat-tab-btn" style="display:none">💬 Chat</div>
     <div class="tab" onclick="switchImpTab('vote')" id="imp-vote-tab-btn" style="display:none">Vote</div>
   </div>
   <div id="imp-tab-kill">
@@ -289,7 +295,8 @@
   </div>
   <div id="imp-tab-tasks" style="display:none">
     <div style="font-size:13px; color:var(--muted); margin-bottom:12px; padding:8px; background:rgba(226,75,74,0.08); border-radius:var(--radius-sm);">Your tasks don't count toward crew progress — but completing them helps you blend in.</div>
-    <button class="btn btn-primary" onclick="openQRScanner()" style="margin-bottom:12px;">📷 Scan location QR</button>
+    <button class="btn btn-primary" id="btn-scan-qr-imp" onclick="openQRScanner()" style="margin-bottom:12px;">📷 Scan location QR</button>
+    <div id="quest-prox-hint-imp" style="display:none; font-size:13px; color:#85B7EB; background:rgba(55,138,221,0.08); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:12px; text-align:center;">📍 Walk near a location to unlock its quest automatically.</div>
     <div id="imp-tasks-list"></div>
   </div>
   <div id="imp-tab-map" style="display:none">
@@ -338,6 +345,16 @@
     <div class="spacer"></div>
     <div class="label">Eliminated</div>
     <div class="card" id="imp-players-dead"></div>
+  </div>
+  <div id="imp-tab-chat" style="display:none">
+    <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">🔒 Private channel — only impostors can read this.</div>
+    <div id="imp-chat-messages" style="background:var(--bg2); border:0.5px solid var(--border); border-radius:var(--radius); padding:10px; height:320px; overflow-y:auto; margin-bottom:10px; display:flex; flex-direction:column; gap:8px;"></div>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <input id="imp-chat-input" type="text" placeholder="Message…" maxlength="300" style="flex:1;" />
+      <button class="btn btn-primary" style="width:auto; padding:10px 14px;" onclick="impChatSendText()">Send</button>
+      <button class="btn btn-danger" id="imp-chat-rec-btn" style="width:auto; padding:10px 14px;" onclick="impChatRecordToggle()" title="Record audio">🎙</button>
+    </div>
+    <div id="imp-chat-rec-status" style="font-size:12px; color:var(--imp); margin-top:6px; min-height:16px;"></div>
   </div>
   <div id="imp-tab-vote" style="display:none">
     <div class="label">Who is the impostor?</div>
@@ -530,10 +547,46 @@
       </select>
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('spyEnabled','admin-live-spy')">Set</button>
     </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">🔍 Investigator role</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <select id="admin-live-investigator" style="flex:1;">
+        <option value="1">Enabled</option>
+        <option value="0">Disabled</option>
+      </select>
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('investigatorEnabled','admin-live-investigator')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Investigator — tasks per power use</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-inv-tasks" style="flex:1;" min="1" max="10" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('investigatorTasksPerUse','admin-live-inv-tasks')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">If ≤ N alive, even 2 nearby blocks quests (3+ nearby always blocks)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-endgame-alive" style="flex:1;" min="2" max="10" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('endgameAliveThreshold','admin-live-endgame-alive')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Endgame: cluster radius (m) — blocked if this close to another player</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-endgame-radius" style="flex:1;" min="5" max="100" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('endgameClusterRadius','admin-live-endgame-radius')">Set</button>
+    </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Spy — Assembly Point location name</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
       <input type="text" id="admin-live-spy-loc" style="flex:1;" placeholder="Assembly Point" maxlength="60" />
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveText('spyLocationName','admin-live-spy-loc')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">How players get quests</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <select id="admin-live-quest-mode" style="flex:1;">
+        <option value="qr">Scan QR code</option>
+        <option value="proximity">GPS proximity (walk near)</option>
+      </select>
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveText('questMode','admin-live-quest-mode')">Set</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Proximity radius (m) — for GPS mode</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <input type="number" id="admin-live-quest-prox" style="flex:1;" min="5" max="200" />
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('questProximity','admin-live-quest-prox')">Set</button>
     </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Game password (players must enter to join)</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:16px;">
@@ -623,6 +676,16 @@
     </div>
     <div id="qr-scanner-status" style="font-size:13px; color:var(--muted); margin-bottom:12px;">Scanning…</div>
     <button class="btn btn-ghost" onclick="closeQRScanner()">Cancel</button>
+  </div>
+</div>
+
+<!-- OVERLAY: Investigate result -->
+<div class="overlay" id="overlay-investigate">
+  <div class="overlay-box" style="text-align:center; max-width:340px;">
+    <div style="font-size:42px; margin-bottom:6px;">🔍</div>
+    <h3 style="margin-bottom:6px; color:#E6C84F;">Investigation</h3>
+    <div id="investigate-result" style="font-size:15px; margin-bottom:16px; line-height:1.5;"></div>
+    <button class="btn btn-primary" onclick="closeOverlay('overlay-investigate')">Got it</button>
   </div>
 </div>
 
@@ -957,6 +1020,7 @@
   const MISSIONS_REF = 'missions';
   const QUIZZES_REF = 'quizzes';
   const HACKING_REF = 'radarActive';
+  const IMPCHAT_REF = 'impostorChat';
   let allQuizzes = {};
   const LOCATIONS_REF = 'radarLocations';
   let allLocations = [];
@@ -971,7 +1035,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true, hitShieldDuration: 60, spyEnabled: true, spyLocationName: 'Assembly Point' };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true, hitShieldDuration: 60, spyEnabled: true, spyLocationName: 'Assembly Point', questMode: 'qr', questProximity: 30, investigatorEnabled: true, investigatorTasksPerUse: 2, endgameAliveThreshold: 5, endgameClusterRadius: 20 };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1128,8 +1192,8 @@
       }
       showToast('A game is already in progress'); return;
     }
-    await set(ref(db, GAME_REF + '/players/' + myPlayerId), {
-      name, alive: true, tasksCompleted: 0, joinedAt: Date.now(),
+    await update(ref(db, GAME_REF + '/players/' + myPlayerId), {
+      name, alive: true, joinedAt: Date.now(),
       color: (() => {
         const usedColors = Object.values(gameState?.players || {}).map(p => p.color).filter(Boolean);
         const available = PLAYER_COLORS.filter(c => !usedColors.includes(c));
@@ -1154,6 +1218,18 @@
     onValue(ref(db, GAME_REF), (snap) => {
       if (!snap.exists()) return;
       gameState = snap.val();
+      // One-time transition: lobby -> role reveal once the admin starts and our role is set
+      if (gameState.state === 'playing' && !roleRevealed) {
+        const myPlayerData = gameState.players?.[myPlayerId];
+        if (!myPlayerData?.role) return; // wait until role assigned
+        roleRevealed = true;
+        myRole = myPlayerData.role;
+        showRoleReveal();
+        return;
+      }
+      // Once the game is underway (or ended), the game listener owns all rendering.
+      // Don't re-render the lobby — avoids redundant work and render races.
+      if (gameState.state !== 'lobby') return;
       const players = gameState.players || {};
       const plist = Object.values(players);
       const el = document.getElementById('lobby-players');
@@ -1163,21 +1239,12 @@
         return `<div class="player-row"><div class="player-dot" style="background:${p.color}"></div><span style="flex:1;">${p.name}</span>${removeBtn}</div>`;
       }).join('');
       const statusEl = document.getElementById('lobby-status');
-      if (statusEl) statusEl.textContent = `${plist.length} player${plist.length!==1?'s':''} in lobby`;
       const btnStart = document.getElementById('btn-start');
       const minP = (settings.impostorCount || 1) + 2;
       if (btnStart) btnStart.style.display = (isAdmin && plist.length >= minP) ? 'block' : 'none';
       const adminLobby = document.getElementById('admin-lobby-controls');
       if (adminLobby) adminLobby.style.display = isAdmin ? 'block' : 'none';
       if (statusEl) statusEl.textContent = plist.length + ' player' + (plist.length!==1?'s':'') + ' in lobby (need ' + minP + ' to start)';
-      if (gameState.state === 'playing' && !roleRevealed) {
-        const myPlayerData = gameState.players?.[myPlayerId];
-        // Wait until role is assigned before transitioning
-        if (!myPlayerData?.role) return;
-        roleRevealed = true;
-        myRole = myPlayerData.role;
-        showRoleReveal();
-      }
     });
   }
 
@@ -1209,6 +1276,8 @@
       updates[GAME_REF + '/players/' + id + '/missions'] = {};
       updates[GAME_REF + '/players/' + id + '/isStalker'] = false;
       updates[GAME_REF + '/players/' + id + '/isSpy'] = false;
+      updates[GAME_REF + '/players/' + id + '/isInvestigator'] = false;
+      updates[GAME_REF + '/players/' + id + '/invUsesUsed'] = 0;
       updates[GAME_REF + '/players/' + id + '/stalkTarget'] = null;
       updates[GAME_REF + '/players/' + id + '/stalkAlert'] = null;
       updates[GAME_REF + '/players/' + id + '/killCooldownUntil'] = 0;
@@ -1230,9 +1299,18 @@
     const spySnap = await get(ref(db, SETTINGS_REF + '/spyEnabled'));
     const spyOn = !spySnap.exists() || (spySnap.val() !== 0 && spySnap.val() !== false);
     const spyCandidates = crewmateIds.filter(id => id !== stalkerId);
+    let spyId = null;
     if (spyOn && spyCandidates.length >= 1) {
-      const spyId = spyCandidates[Math.floor(Math.random() * spyCandidates.length)];
+      spyId = spyCandidates[Math.floor(Math.random() * spyCandidates.length)];
       updates[GAME_REF + '/players/' + spyId + '/isSpy'] = true;
+    }
+    // Assign investigator to another random crewmate (not impostor, stalker, or spy)
+    const invSnap = await get(ref(db, SETTINGS_REF + '/investigatorEnabled'));
+    const invOn = !invSnap.exists() || (invSnap.val() !== 0 && invSnap.val() !== false);
+    const invCandidates = crewmateIds.filter(id => id !== stalkerId && id !== spyId);
+    if (invOn && invCandidates.length >= 1) {
+      const invId = invCandidates[Math.floor(Math.random() * invCandidates.length)];
+      updates[GAME_REF + '/players/' + invId + '/isInvestigator'] = true;
     }
     updates[GAME_REF + '/impostorCount'] = impostorCount;
     updates[GAME_REF + '/questsToWin'] = settings.questsToWin || 3;
@@ -1253,6 +1331,7 @@
     updates[GAME_REF + '/evidence'] = null;
     updates[GAME_REF + '/coopSessions'] = null;
     await update(ref(db), updates);
+    await remove(ref(db, IMPCHAT_REF));
     await remove(ref(db, HACKING_REF));
     await remove(ref(db, POSITIONS_REF)); // clear stale positions from previous games
     // Force own transition to role reveal (don't go back to lobby)
@@ -1286,17 +1365,21 @@
     const me = gameState?.players?.[myPlayerId];
     const amStalker = me?.isStalker;
     const amSpy = me?.isSpy;
+    const amInv = me?.isInvestigator;
     const spyLoc = settings.spyLocationName || 'Assembly Point';
-    document.getElementById('role-icon').textContent = role === 'impostor' ? '🔴' : (amStalker ? '🕵️' : amSpy ? '🛰' : '🔵');
-    document.getElementById('role-name').textContent = role === 'impostor' ? 'Impostor' : (amStalker ? 'Stalker' : amSpy ? 'Spy' : 'Crewmate');
+    const invN = settings.investigatorTasksPerUse || 2;
+    document.getElementById('role-icon').textContent = role === 'impostor' ? '🔴' : (amStalker ? '🕵️' : amSpy ? '🛰' : amInv ? '🔍' : '🔵');
+    document.getElementById('role-name').textContent = role === 'impostor' ? 'Impostor' : (amStalker ? 'Stalker' : amSpy ? 'Spy' : amInv ? 'Investigator' : 'Crewmate');
     document.getElementById('role-desc').textContent = role === 'impostor'
       ? 'Eliminate crewmates. Survive the vote. Win.'
       : (amStalker
           ? 'You are a crewmate with a secret: pick someone to follow. If they get attacked, you\'ll see the photo.'
           : amSpy
           ? 'You are a crewmate with a secret: scan the "' + spyLoc + '" QR to reveal every player on a live radar — but only while the screen stays open.'
+          : amInv
+          ? 'You are a crewmate with a secret: every ' + invN + ' tasks you complete earns one Investigate use, revealing the location nearest to an impostor right now.'
           : 'Complete your tasks. Find the impostor. Survive.');
-    document.getElementById('role-name').style.color = role === 'impostor' ? 'var(--imp)' : (amStalker ? 'var(--amber)' : amSpy ? '#378ADD' : 'var(--crew)');
+    document.getElementById('role-name').style.color = role === 'impostor' ? 'var(--imp)' : (amStalker ? 'var(--amber)' : amSpy ? '#378ADD' : amInv ? '#C9A227' : 'var(--crew)');
     if (role === 'impostor' && gameState) {
       const fellowImpostors = Object.entries(gameState.players||{})
         .filter(([pid, p]) => p.role === 'impostor' && pid !== myPlayerId)
@@ -1526,6 +1609,40 @@
         const spyHintLoc = document.getElementById('spy-hint-loc');
         if (spyHintLoc) spyHintLoc.textContent = settings.spyLocationName || 'Assembly Point';
       }
+      // Quest acquisition mode: QR button vs proximity hint
+      const proxMode = (settings.questMode || 'qr') === 'proximity';
+      const scanBtn = document.getElementById('btn-scan-qr');
+      const proxHint = document.getElementById('quest-prox-hint');
+      if (scanBtn) scanBtn.style.display = proxMode ? 'none' : 'block';
+      if (proxHint) proxHint.style.display = proxMode ? 'block' : 'none';
+      // Investigator power box
+      const invBox = document.getElementById('investigator-box');
+      if (invBox) {
+        if (me.isInvestigator) {
+          invBox.style.display = 'block';
+          const amDead = !me.alive && !me.pendingKill;
+          const perUse = settings.investigatorTasksPerUse || 2;
+          const doneCount = Object.values(me.missions || {}).filter(m => m.done).length;
+          const earned = Math.floor(doneCount / perUse);
+          const used = me.invUsesUsed || 0;
+          const avail = Math.max(0, earned - used);
+          const statusEl = document.getElementById('inv-status');
+          const useBtn = document.getElementById('inv-use-btn');
+          if (amDead) {
+            if (statusEl) statusEl.textContent = 'Eliminated — power disabled.';
+            if (useBtn) { useBtn.disabled = true; useBtn.textContent = '🔍 Investigate'; }
+          } else if (avail > 0) {
+            if (statusEl) statusEl.textContent = avail + ' use' + (avail!==1?'s':'') + ' ready.';
+            if (useBtn) { useBtn.disabled = false; useBtn.textContent = '🔍 Investigate (' + avail + ')'; }
+          } else {
+            const toNext = perUse - (doneCount % perUse);
+            if (statusEl) statusEl.textContent = 'Complete ' + toNext + ' more task' + (toNext!==1?'s':'') + ' to charge.';
+            if (useBtn) { useBtn.disabled = true; useBtn.textContent = '🔍 Investigate'; }
+          }
+        } else {
+          invBox.style.display = 'none';
+        }
+      }
       // Stalker: detect new kill alert on followed target
       if (me.isStalker && me.stalkAlert && me.stalkAlert.at && me.stalkAlert.at !== _lastStalkAlert) {
         _lastStalkAlert = me.stalkAlert.at;
@@ -1567,6 +1684,11 @@
       document.getElementById('sabotage-breach-dur-label').textContent = breachDurMin;
       document.getElementById('sabotage-rally-loc-label').textContent = rallyLoc;
       document.getElementById('imp-vote-tab-btn').style.display = 'none';
+      // Impostor chat tab — only useful with 2+ impostors
+      const totalImpostors = Object.values(gameState.players || {}).filter(p => p.role === 'impostor').length;
+      const chatTabBtn = document.getElementById('imp-chat-tab-btn');
+      if (chatTabBtn) chatTabBtn.style.display = totalImpostors >= 2 ? '' : 'none';
+      attachImpChatListener();
       const impBtnEmergency = document.getElementById('imp-btn-emergency');
       if (impBtnEmergency) {
         const emergencyActiveImp = !!gameState.meetingActive || !!gameState.votingActive;
@@ -1728,8 +1850,8 @@
     document.getElementById('overlay-qr-scanner').classList.remove('active');
   }
 
-  async function assignQuestFromLocation(locName) {
-    if (!myPlayerId || !gameState) { showToast('Not in a game'); return; }
+  async function assignQuestFromLocation(locName, silent) {
+    if (!myPlayerId || !gameState) { if (!silent) showToast('Not in a game'); return; }
     // Spy: scanning the Assembly Point opens the full-player radar (session-bound access)
     const me0 = gameState.players?.[myPlayerId];
     const spyLoc = (settings.spyLocationName || 'Assembly Point').toLowerCase();
@@ -1737,9 +1859,13 @@
       openSpyRadar();
       return;
     }
+    if (questClusterBlocked()) {
+      if (!silent) showToast('Endgame: too close to another player — spread out to do quests');
+      return;
+    }
     await loadMissions();
     const playerSnap = await get(ref(db, GAME_REF+'/players/'+myPlayerId));
-    if (!playerSnap.exists()) { showToast('Player data not found'); return; }
+    if (!playerSnap.exists()) { if (!silent) showToast('Player data not found'); return; }
     const player = playerSnap.val();
     const existingMissions = Object.values(player.missions || {});
 
@@ -1748,6 +1874,7 @@
     // Already have any mission from this location (active or done) — one per location per player
     const alreadyVisited = existingMissions.find(m => m.location?.toLowerCase() === locName.toLowerCase());
     if (alreadyVisited) {
+      if (silent) return; // proximity mode: don't nag when walking past a done/active spot
       document.getElementById('quest-result-title').textContent = alreadyVisited.done ? '✓ Quest already completed here' : 'Quest already active';
       document.getElementById('quest-result-content').innerHTML = `
         <div class="mission-card">
@@ -1766,6 +1893,7 @@
     );
 
     if (!pool.length) {
+      if (silent) return;
       document.getElementById('quest-result-title').textContent = '✓ All quests complete here!';
       document.getElementById('quest-result-content').innerHTML = '<div style="font-size:14px; color:var(--green); text-align:center; padding:8px 0;">You\'ve finished every quest at this location.</div>';
       document.getElementById('overlay-quest-result').classList.add('active');
@@ -1885,6 +2013,12 @@
   function renderImpTasks() {
     const me = gameState?.players?.[myPlayerId];
     if (!me) return;
+    // Quest acquisition mode: QR button vs proximity hint
+    const proxMode = (settings.questMode || 'qr') === 'proximity';
+    const scanBtnI = document.getElementById('btn-scan-qr-imp');
+    const proxHintI = document.getElementById('quest-prox-hint-imp');
+    if (scanBtnI) scanBtnI.style.display = proxMode ? 'none' : 'block';
+    if (proxHintI) proxHintI.style.display = proxMode ? 'block' : 'none';
     const el = document.getElementById('imp-tasks-list');
     if (!el) return;
     const pending = Object.entries(me.missions || {}).filter(([, m]) => !m.done);
@@ -2783,6 +2917,7 @@
     document.getElementById('quiz-feedback-icon').textContent = passed ? '✅' : '❌';
     document.getElementById('quiz-feedback-msg').textContent = passed ? 'Passed! ' + quizScore + '/5' : 'Failed — ' + quizScore + '/5';
     if (passed) {
+      if (questClusterBlocked()) { showToast('Endgame: too close to another player — spread out to do quests'); closeOverlay('overlay-quiz'); return; }
       document.getElementById('quiz-feedback-sub').textContent = 'Task complete!';
       document.getElementById('quiz-next-btn').textContent = 'Done';
       const tl = document.getElementById('quiz-try-later-btn');
@@ -2790,10 +2925,9 @@
       await update(ref(db), { [GAME_REF+'/players/'+myPlayerId+'/missions/'+quizMissionKey+'/done']: true });
       checkWinConditions();
     } else {
-      // Increment fail count
+      // Increment fail count — read by KEY (index can point to the wrong mission)
       const me = gameState.players[myPlayerId];
-      const missions = Object.entries(me.missions || {});
-      const [, mission] = missions[quizMissionIdx] || [null, {}];
+      const mission = (me.missions || {})[quizMissionKey] || {};
       const fails = (mission.quizFails || 0) + 1;
       if (fails >= 3) {
         // 3rd fail — discard for this player only
@@ -3361,7 +3495,12 @@
     _wordleRow++;
 
     if (guess === _wordleAnswer) {
-      // WIN — complete the mission
+      // WIN — complete the mission (unless blocked by endgame anti-huddle)
+      if (questClusterBlocked()) {
+        msg.style.color = 'var(--imp)';
+        msg.textContent = 'Too close to another player — spread out to complete (endgame).';
+        return;
+      }
       msg.style.color = 'var(--green)';
       msg.textContent = '🎉 Correct! Task complete.';
       inp.disabled = true;
@@ -3514,6 +3653,7 @@
 
   window.submitProof = async function() {
     if (!currentProofMission) return;
+    if (questClusterBlocked()) { showToast('Endgame: too close to another player — spread out to do quests'); return; }
     const { mission } = currentProofMission;
     // Support both key-based (new) and idx-based (legacy) access
     const missionKey = currentProofMission.key || (() => {
@@ -3741,6 +3881,7 @@
       (pos) => {
         myLatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         pushMyPosition();
+        checkQuestProximity();
         // Radar redraw is handled by the requestAnimationFrame loop when the map tab is visible
       },
       () => {
@@ -3750,6 +3891,61 @@
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
     );
   }
+
+  // Anti-huddle: quests are blocked based on how many alive players are clustered near you.
+  //  - ALWAYS: if 3 are together (you + 2 others within radius) -> blocked.
+  //  - If total alive <= endgameAliveThreshold (default 5): even 2 together (you + 1) -> blocked.
+  function questClusterBlocked() {
+    if (!gameState) return false;
+    const radius = settings.endgameClusterRadius || 20;
+    const fewThreshold = settings.endgameAliveThreshold || 5;
+    const alivePlayers = Object.entries(gameState.players || {})
+      .filter(([id, p]) => p.alive && !p.temporarilyDead);
+    const aliveCount = alivePlayers.length;
+    if (!myLatLng) return false; // can't determine position — don't block
+    const now = Date.now();
+    let nearby = 0; // other alive players within the cluster radius of me
+    for (const [pid, p] of alivePlayers) {
+      if (pid === myPlayerId) continue;
+      const pos = positions[pid];
+      if (!pos || pos.lat == null) continue;
+      if (pos.updatedAt && now - pos.updatedAt > 90000) continue; // stale fix — ignore
+      const d = gpsToMetres(myLatLng.lat, myLatLng.lng, pos.lat, pos.lng).dist;
+      if (d <= radius) nearby++;
+    }
+    // Minimum number of OTHER players nearby that triggers the block
+    const minOthers = (aliveCount <= fewThreshold) ? 1 : 2;
+    return nearby >= minOthers;
+  }
+
+  // Locations currently within proximity (debounce so a quest triggers once per approach)
+  let _proximityInRange = new Set();
+  function checkQuestProximity() {
+    if ((settings.questMode || 'qr') !== 'proximity') return;
+    if (!myLatLng || !gameState || gameState.state !== 'playing') return;
+    if (gameState.paused) return;
+    const me = gameState.players?.[myPlayerId];
+    if (!me || (!me.alive && !me.pendingKill)) return; // dead players don't pick up quests
+    const radius = settings.questProximity || 30;
+    const hysteresis = radius * 0.5; // must move out by 50% extra before it can re-trigger
+    const active = (allLocations || []).filter(l => l.active !== false && l.lat && l.lng);
+    active.forEach(loc => {
+      const { dist } = gpsToMetres(myLatLng.lat, myLatLng.lng, loc.lat, loc.lng);
+      const key = loc.name;
+      if (dist <= radius) {
+        if (!_proximityInRange.has(key)) {
+          // If currently blocked by the anti-huddle rule, don't consume the trigger —
+          // let it retry on a later tick once the player has spread out.
+          if (questClusterBlocked()) return;
+          _proximityInRange.add(key);
+          assignQuestFromLocation(loc.name, true); // silent: same flow as QR, no "already done" nag
+        }
+      } else if (dist > radius + hysteresis) {
+        _proximityInRange.delete(key); // left the area — can trigger again on return
+      }
+    });
+  }
+  setInterval(checkQuestProximity, 4000);
 
   function gpsToMetres(lat1, lng1, lat2, lng2) {
     const R = 6371000;
@@ -4080,6 +4276,49 @@
     // Access is revoked — the only way back in is to rescan the Assembly Point QR
   };
 
+  // ===== INVESTIGATOR power: reveal the location nearest to one impostor, right now =====
+  window.useInvestigate = async function() {
+    const me = gameState?.players?.[myPlayerId];
+    if (!me?.isInvestigator) return;
+    if (!me.alive && !me.pendingKill) { showToast("You're eliminated"); return; }
+    const perUse = settings.investigatorTasksPerUse || 2;
+    const doneCount = Object.values(me.missions || {}).filter(m => m.done).length;
+    const earned = Math.floor(doneCount / perUse);
+    const used = me.invUsesUsed || 0;
+    if (earned - used <= 0) { showToast('Power not charged yet'); return; }
+
+    if (!allLocations.length) await loadLocations();
+    const active = allLocations.filter(l => l.active !== false && l.lat && l.lng);
+    if (!active.length) { showToast('No locations configured'); return; }
+
+    // Alive impostors that currently have a known position
+    const impostors = Object.entries(gameState.players || {})
+      .filter(([pid, p]) => p.role === 'impostor' && p.alive && !p.temporarilyDead)
+      .map(([pid]) => pid)
+      .filter(pid => positions[pid] && positions[pid].lat != null);
+    if (!impostors.length) {
+      showToast("No impostor signal right now — try again shortly (use not spent)");
+      return; // do NOT consume the use if we can't get a fix
+    }
+    // Pick one impostor at random, find the location nearest to them
+    const targetImp = impostors[Math.floor(Math.random() * impostors.length)];
+    const ip = positions[targetImp];
+    let best = null;
+    active.forEach(loc => {
+      const { dist } = gpsToMetres(ip.lat, ip.lng, loc.lat, loc.lng);
+      if (!best || dist < best.dist) best = { name: loc.name, dist: Math.round(dist) };
+    });
+    if (!best) { showToast('Could not compute — try again'); return; }
+
+    // Consume one use
+    await update(ref(db), { [GAME_REF+'/players/'+myPlayerId+'/invUsesUsed']: used + 1 });
+    if (navigator.vibrate) navigator.vibrate([40,40,120]);
+    document.getElementById('investigate-result').innerHTML =
+      'Right now, an impostor is closest to:<br><b style="font-size:18px; color:#E6C84F;">' + best.name + '</b><br>' +
+      '<span style="font-size:13px; color:var(--muted);">about ' + best.dist + 'm from that spot</span>';
+    document.getElementById('overlay-investigate').classList.add('active');
+  };
+
   function drawSpyRadar(sweep) {
     sweep = sweep || 0;
     const canvas = document.getElementById('spy-radar-canvas');
@@ -4288,7 +4527,7 @@
   }
 
   window.switchImpTab = function(tab) {
-    ['kill','tasks','map','sabotage','players','vote'].forEach(t => {
+    ['kill','tasks','map','sabotage','players','vote','chat'].forEach(t => {
       const el = document.getElementById('imp-tab-'+t);
       if (el) el.style.display = t===tab ? 'block' : 'none';
       const btn = document.querySelector(`[onclick="switchImpTab('${t}')"]`);
@@ -4302,11 +4541,115 @@
       renderVoting();
     }
     if (tab==='tasks') renderImpTasks();
+    if (tab==='chat') {
+      const inp = document.getElementById('imp-chat-input');
+      if (inp && !inp._enterBound) {
+        inp._enterBound = true;
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); window.impChatSendText(); } });
+      }
+      const m = document.getElementById('imp-chat-messages'); if (m) m.scrollTop = m.scrollHeight;
+    }
     if (tab==='map') { startMapRefresh('imp-radar-canvas', 'imp-radar-legend'); } else { stopMapRefresh(); }
   }
 
   let hackingListenerAttached = false;
   let _posPushInterval = null;
+
+  // ===== IMPOSTOR CHAT (text + audio, impostors only) =====
+  let _impChatListenerAttached = false;
+  function attachImpChatListener() {
+    if (_impChatListenerAttached) return;
+    _impChatListenerAttached = true;
+    onValue(ref(db, IMPCHAT_REF), (snap) => {
+      if (myRole !== 'impostor') return;
+      renderImpChat(snap.exists() ? snap.val() : {});
+    });
+  }
+
+  let _impChatLastCount = 0;
+  function renderImpChat(msgs) {
+    const box = document.getElementById('imp-chat-messages');
+    if (!box) return;
+    const entries = Object.entries(msgs).sort((a,b) => (a[1].at||0) - (b[1].at||0));
+    // Was the user near the bottom before re-render? keep them pinned.
+    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+    box.innerHTML = entries.length ? entries.map(([k, m]) => {
+      const mine = m.sid === myPlayerId;
+      const align = mine ? 'flex-end' : 'flex-start';
+      const bg = mine ? 'rgba(226,75,74,0.22)' : 'var(--bg3)';
+      const time = m.at ? new Date(m.at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
+      const body = m.type === 'audio'
+        ? `<audio controls src="${m.audio}" style="width:200px; max-width:60vw; margin-top:4px;"></audio>`
+        : `<div style="font-size:14px; word-break:break-word;">${escapeHtml(m.text || '')}</div>`;
+      return `<div style="align-self:${align}; max-width:80%; background:${bg}; border-radius:12px; padding:7px 11px;">
+        <div style="font-size:11px; color:var(--muted); margin-bottom:2px;">${escapeHtml(m.name || '?')}${mine?' (you)':''} · ${time}</div>
+        ${body}
+      </div>`;
+    }).join('') : '<div style="color:var(--muted); font-size:13px; text-align:center; margin:auto;">No messages yet. Coordinate with your fellow impostors.</div>';
+    if (nearBottom || entries.length > _impChatLastCount) box.scrollTop = box.scrollHeight;
+    _impChatLastCount = entries.length;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  window.impChatSendText = async function() {
+    if (myRole !== 'impostor') return;
+    const inp = document.getElementById('imp-chat-input');
+    const text = (inp.value || '').trim();
+    if (!text) return;
+    inp.value = '';
+    await push(ref(db, IMPCHAT_REF), {
+      sid: myPlayerId, name: myName, type: 'text', text, at: Date.now()
+    });
+  };
+
+  let _impChatRecorder = null, _impChatChunks = [], _impChatRecTimer = null;
+  window.impChatRecordToggle = async function() {
+    if (myRole !== 'impostor') return;
+    const btn = document.getElementById('imp-chat-rec-btn');
+    const status = document.getElementById('imp-chat-rec-status');
+    // Stop if already recording
+    if (_impChatRecorder && _impChatRecorder.state === 'recording') {
+      _impChatRecorder.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      _impChatChunks = [];
+      _impChatRecorder = new MediaRecorder(stream);
+      _impChatRecorder.ondataavailable = e => { if (e.data.size > 0) _impChatChunks.push(e.data); };
+      _impChatRecorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (_impChatRecTimer) { clearInterval(_impChatRecTimer); _impChatRecTimer = null; }
+        btn.textContent = '🎙'; btn.classList.remove('btn-primary');
+        status.textContent = 'Sending…';
+        const blob = new Blob(_impChatChunks, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+          await push(ref(db, IMPCHAT_REF), {
+            sid: myPlayerId, name: myName, type: 'audio', audio: ev.target.result, at: Date.now()
+          });
+          status.textContent = '';
+        };
+        reader.readAsDataURL(blob);
+      };
+      _impChatRecorder.start();
+      btn.textContent = '⏹'; btn.classList.add('btn-primary');
+      let secs = 0;
+      status.textContent = '● Recording 0s — tap ⏹ to send';
+      _impChatRecTimer = setInterval(() => {
+        secs++;
+        status.textContent = '● Recording ' + secs + 's — tap ⏹ to send';
+        if (secs >= 12) _impChatRecorder.stop(); // cap length to keep size small
+      }, 1000);
+    } catch(e) {
+      status.textContent = '⚠ Mic not available — ' + (e.message || 'permission denied');
+    }
+  };
+
+
   const _origGoToMain = window.goToMain;
   window.goToMain = function() {
     startGPS();
@@ -4441,8 +4784,19 @@
     document.getElementById('admin-live-face').value = settings.faceDetection !== undefined ? settings.faceDetection : 1;
     document.getElementById('admin-live-stalker').value = (settings.stalkerEnabled != 0) ? 1 : 0;
     document.getElementById('admin-live-spy').value = (settings.spyEnabled != 0) ? 1 : 0;
+    document.getElementById('admin-live-investigator').value = (settings.investigatorEnabled != 0) ? 1 : 0;
+    const invTasksEl = document.getElementById('admin-live-inv-tasks');
+    if (invTasksEl) invTasksEl.value = settings.investigatorTasksPerUse || 2;
+    const egAliveEl = document.getElementById('admin-live-endgame-alive');
+    if (egAliveEl) egAliveEl.value = settings.endgameAliveThreshold || 5;
+    const egRadEl = document.getElementById('admin-live-endgame-radius');
+    if (egRadEl) egRadEl.value = settings.endgameClusterRadius || 20;
     const spyLocEl = document.getElementById('admin-live-spy-loc');
     if (spyLocEl) spyLocEl.value = settings.spyLocationName || 'Assembly Point';
+    const qmEl = document.getElementById('admin-live-quest-mode');
+    if (qmEl) qmEl.value = settings.questMode || 'qr';
+    const qpEl = document.getElementById('admin-live-quest-prox');
+    if (qpEl) qpEl.value = settings.questProximity || 30;
     document.getElementById('admin-live-sabotage-comms').value = settings.sabotageCommsDuration || 420;
     document.getElementById('admin-live-sabotage-breach').value = settings.sabotageBreachDuration || 300;
     document.getElementById('admin-live-sabotage-rally').value = settings.sabotageRallyLocation || '';
@@ -4538,6 +4892,8 @@
         updates[GAME_REF+'/players/'+id+'/lives'] = null;
         updates[GAME_REF+'/players/'+id+'/isStalker'] = false;
         updates[GAME_REF+'/players/'+id+'/isSpy'] = false;
+        updates[GAME_REF+'/players/'+id+'/isInvestigator'] = false;
+        updates[GAME_REF+'/players/'+id+'/invUsesUsed'] = 0;
         updates[GAME_REF+'/players/'+id+'/stalkTarget'] = null;
         updates[GAME_REF+'/players/'+id+'/stalkAlert'] = null;
         updates[GAME_REF+'/players/'+id+'/killCooldownUntil'] = 0;
@@ -4679,13 +5035,6 @@
     } catch(err) {
       showToast('Invalid JSON file');
     }
-  }
-
-  window.deleteAllMissions = async function() {
-    await remove(ref(db, MISSIONS_REF));
-    allMissions = [];
-    showToast('All missions deleted');
-    loadAdminFloatMissions();
   }
 
   window.deleteMissionAndRefresh = async function(id) {
@@ -4867,7 +5216,10 @@
     showToast('Updated: ' + val);
   }
 
+  let _reportsListenerAttached = false;
   function listenReports() {
+    if (_reportsListenerAttached) return;
+    _reportsListenerAttached = true;
     onValue(ref(db, GAME_REF+'/reports'), (snap) => {
       if (!snap.exists() || !isAdmin) return;
       const reports = Object.values(snap.val());
@@ -4937,6 +5289,8 @@
         updates[GAME_REF+'/players/'+id+'/lives'] = null;
         updates[GAME_REF+'/players/'+id+'/isStalker'] = false;
         updates[GAME_REF+'/players/'+id+'/isSpy'] = false;
+        updates[GAME_REF+'/players/'+id+'/isInvestigator'] = false;
+        updates[GAME_REF+'/players/'+id+'/invUsesUsed'] = 0;
         updates[GAME_REF+'/players/'+id+'/stalkTarget'] = null;
         updates[GAME_REF+'/players/'+id+'/stalkAlert'] = null;
         updates[GAME_REF+'/players/'+id+'/killCooldownUntil'] = 0;
