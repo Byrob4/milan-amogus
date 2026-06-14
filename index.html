@@ -967,6 +967,7 @@
 
   let myPlayerId = null;
   let isAdmin = false;
+  let _adminPanelAuthed = false;
   let myName = null;
   let myRole = null;
   let gameState = null;
@@ -1002,8 +1003,10 @@
     const name = document.getElementById('input-admin-name').value.trim();
     if (!name) { showToast('Enter your name'); return; }
     await loadSettings();
-    if (pw !== (settings.adminPassword || ADMIN_PASSWORD_DEFAULT)) { showToast('Wrong password'); return; }
+    const expected = (settings.adminPassword || ADMIN_PASSWORD_DEFAULT);
+    if (pw.trim() !== String(expected).trim()) { showToast('Wrong password'); return; }
     isAdmin = true;
+    _adminPanelAuthed = true;
     localStorage.setItem('amogus_is_admin', '1');
     document.getElementById('input-name').value = name;
     await joinGame();
@@ -1101,9 +1104,9 @@
     const name = document.getElementById('input-name').value.trim();
     if (!name) { showToast('Enter your name'); return; }
     await loadSettings();
-    // Require game password if one is set
+    // Require game password if one is set — but admins (already verified) bypass it
     const requiredPw = settings.gamePassword || '';
-    if (requiredPw) {
+    if (requiredPw && !isAdmin) {
       const enteredPw = document.getElementById('input-game-pw')?.value || '';
       if (enteredPw !== requiredPw) { showToast('Wrong game password'); return; }
     }
@@ -3068,6 +3071,11 @@
 
   window.callEmergency = async function() {
     if (gameState.meetingActive || gameState.votingActive) return;
+    // Dead players cannot call emergency meetings
+    const myself = gameState.players?.[myPlayerId];
+    if (!myself || !myself.alive || myself.temporarilyDead) {
+      showToast("You're eliminated — you can't call a meeting"); return;
+    }
     // Block if comms sabotage active
     const now = Date.now();
     if (gameState.sabotageType === 'comms' && now < (gameState.sabotageCommsUntil || 0)) {
@@ -3130,6 +3138,11 @@
   window.confirmKill = async function() {
     if (!killTarget || !killPhotoData) return;
     if (gameState.paused) { showToast('Game is paused'); return; }
+    // Dead impostors cannot kill
+    const myself = gameState.players?.[myPlayerId];
+    if (!myself || !myself.alive || myself.temporarilyDead) {
+      showToast("You're eliminated — you can't kill"); closeOverlay('overlay-kill'); return;
+    }
     // Guard: target might already have a pending kill (e.g. double-tap before UI updates)
     const targetCheck = gameState.players[killTarget];
     if (!targetCheck?.alive || targetCheck?.pendingKill) {
@@ -4396,8 +4409,16 @@
   let adminPreviousScreen = null;
 
   window.openAdminScreen = async function() {
-    adminPreviousScreen = document.querySelector('.screen.active')?.id || 'screen-lobby';
     await loadSettings();
+    // Require the admin password to open the settings panel (once per session)
+    if (!_adminPanelAuthed) {
+      const expected = String(settings.adminPassword || ADMIN_PASSWORD_DEFAULT).trim();
+      const entered = (window.prompt('Admin password:') || '').trim();
+      if (entered === '') return;
+      if (entered !== expected) { showToast('Wrong admin password'); return; }
+      _adminPanelAuthed = true;
+    }
+    adminPreviousScreen = document.querySelector('.screen.active')?.id || 'screen-lobby';
     // Populate all fields
     document.getElementById('admin-live-impostors').value = settings.impostorCount || 1;
     document.getElementById('admin-live-cooldown').value = settings.cooldown || 120;
