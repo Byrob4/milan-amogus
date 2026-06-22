@@ -366,6 +366,7 @@
   <div class="gap"></div>
   <button class="btn btn-ghost" onclick="openCoopJoin()" style="margin-bottom:8px;">👥 Join a co-op</button>
   <button class="btn btn-ghost" id="imp-btn-emergency" onclick="callEmergency()">🚨 Emergency meeting</button>
+  <button class="btn btn-danger" id="imp-btn-fake-emergency" onclick="useFakeEmergency()" style="display:none; margin-top:8px;">📢 Fake emergency call (1 per game)</button>
   <div class="spacer"></div>
   <button class="btn btn-ghost" style="font-size:13px; padding:10px;" onclick="openReport()">⚠ Report player</button>
 </div>
@@ -570,6 +571,14 @@
       <input type="number" id="admin-live-endgame-radius" style="flex:1;" min="5" max="100" />
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSetting('endgameClusterRadius','admin-live-endgame-radius')">Set</button>
     </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">📢 Impostor fake emergency (1 per game each)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <select id="admin-live-fake-emergency" style="flex:1;">
+        <option value="1">Enabled</option>
+        <option value="0">Disabled</option>
+      </select>
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('fakeEmergencyEnabled','admin-live-fake-emergency')">Set</button>
+    </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Spy — Assembly Point location name</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
       <input type="text" id="admin-live-spy-loc" style="flex:1;" placeholder="Assembly Point" maxlength="60" />
@@ -736,6 +745,7 @@
       <option value="none">No proof</option>
       <option value="quiz">Quiz</option>
       <option value="wordle">Wordle</option>
+      <option value="zip">Zip (path puzzle)</option>
     </select>
     <div id="mission-code-wrapper" style="display:none">
       <div class="spacer"></div>
@@ -897,6 +907,21 @@
   </div>
 </div>
 
+<!-- OVERLAY: Zip path puzzle -->
+<div class="overlay" id="overlay-zip">
+  <div class="overlay-box" style="text-align:center; max-width:380px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <h3 style="margin:0;">🔗 Zip</h3>
+      <button onclick="closeZipTemp()" style="background:none; border:none; color:var(--muted); font-size:22px; cursor:pointer; line-height:1;" title="Close (resume later)">×</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:12px;">Draw one path that fills <b>every</b> cell, passing the numbers <b>in order</b> (1→2→3…) and <b>ending on the last number</b>. Tap an adjacent cell to extend, tap the last cell to undo.</div>
+    <div id="zip-board" style="position:relative; margin:0 auto 12px; touch-action:manipulation;"></div>
+    <div id="zip-msg" style="font-size:13px; min-height:18px; margin-bottom:10px; color:var(--amber);"></div>
+    <button class="btn btn-ghost" onclick="zipReset()" style="margin-bottom:8px;">↺ Reset path</button>
+    <button class="btn btn-ghost" onclick="closeZipTemp()">Close (resume later)</button>
+  </div>
+</div>
+
 <!-- OVERLAY: Wordle -->
 <div class="overlay" id="overlay-wordle">
   <div class="overlay-box" style="text-align:center; max-width:360px;">
@@ -1035,7 +1060,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true, hitShieldDuration: 60, spyEnabled: true, spyLocationName: 'Assembly Point', questMode: 'qr', questProximity: 30, investigatorEnabled: true, investigatorTasksPerUse: 2, endgameAliveThreshold: 5, endgameClusterRadius: 20 };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true, hitShieldDuration: 60, spyEnabled: true, spyLocationName: 'Assembly Point', questMode: 'qr', questProximity: 30, investigatorEnabled: true, investigatorTasksPerUse: 2, endgameAliveThreshold: 5, endgameClusterRadius: 20, fakeEmergencyEnabled: true };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1278,6 +1303,7 @@
       updates[GAME_REF + '/players/' + id + '/isSpy'] = false;
       updates[GAME_REF + '/players/' + id + '/isInvestigator'] = false;
       updates[GAME_REF + '/players/' + id + '/invUsesUsed'] = 0;
+      updates[GAME_REF + '/players/' + id + '/fakeEmergencyUsed'] = false;
       updates[GAME_REF + '/players/' + id + '/stalkTarget'] = null;
       updates[GAME_REF + '/players/' + id + '/stalkAlert'] = null;
       updates[GAME_REF + '/players/' + id + '/killCooldownUntil'] = 0;
@@ -1330,9 +1356,13 @@
     updates[GAME_REF + '/emergencyCalledBy'] = null;
     updates[GAME_REF + '/evidence'] = null;
     updates[GAME_REF + '/coopSessions'] = null;
+    updates[GAME_REF + '/reports'] = null;
     await update(ref(db), updates);
     await remove(ref(db, IMPCHAT_REF));
     await remove(ref(db, HACKING_REF));
+    window._lastReportTs = Date.now(); // ignore any pre-game reports so they don't carry over
+    const _rb = document.getElementById('report-banner');
+    if (_rb) _rb.style.display = 'none';
     await remove(ref(db, POSITIONS_REF)); // clear stale positions from previous games
     // Force own transition to role reveal (don't go back to lobby)
     setTimeout(async () => {
@@ -1689,6 +1719,13 @@
       const chatTabBtn = document.getElementById('imp-chat-tab-btn');
       if (chatTabBtn) chatTabBtn.style.display = totalImpostors >= 2 ? '' : 'none';
       attachImpChatListener();
+      // Fake emergency: once per game, shown only if enabled, unused, and alive
+      const fakeBtn = document.getElementById('imp-btn-fake-emergency');
+      if (fakeBtn) {
+        const enabled = settings.fakeEmergencyEnabled !== 0 && settings.fakeEmergencyEnabled !== false;
+        const canUse = enabled && me.alive && !me.temporarilyDead && !me.fakeEmergencyUsed;
+        fakeBtn.style.display = canUse ? 'block' : 'none';
+      }
       const impBtnEmergency = document.getElementById('imp-btn-emergency');
       if (impBtnEmergency) {
         const emergencyActiveImp = !!gameState.meetingActive || !!gameState.votingActive;
@@ -1879,7 +1916,7 @@
       document.getElementById('quest-result-content').innerHTML = `
         <div class="mission-card">
           <div style="font-weight:600; font-size:15px; margin-bottom:6px;">${alreadyVisited.description}</div>
-          <div style="font-size:13px; color:var(--muted);">${alreadyVisited.done ? '✅ Completed' : (alreadyVisited.proofType==='photo'?'📷 Photo required':alreadyVisited.proofType==='quiz'?'🧠 Quiz':alreadyVisited.proofType==='wordle'?'🟩 Wordle':'🔢 Code required')}</div>
+          <div style="font-size:13px; color:var(--muted);">${alreadyVisited.done ? '✅ Completed' : (alreadyVisited.proofType==='photo'?'📷 Photo required':alreadyVisited.proofType==='quiz'?'🧠 Quiz':alreadyVisited.proofType==='wordle'?'🟩 Wordle':alreadyVisited.proofType==='zip'?'🔗 Zip':'🔢 Code required')}</div>
         </div>`;
       document.getElementById('overlay-quest-result').classList.add('active');
       return;
@@ -1911,7 +1948,7 @@
     document.getElementById('quest-result-content').innerHTML = `
       <div class="mission-card">
         <div style="font-weight:600; font-size:15px; margin-bottom:6px;">${picked.description}</div>
-        <div style="font-size:13px; color:var(--muted);">${picked.proofType==='photo'?'📷 Photo required':picked.proofType==='quiz'?'🧠 Quiz':picked.proofType==='wordle'?'🟩 Wordle':'🔢 Code required'}</div>
+        <div style="font-size:13px; color:var(--muted);">${picked.proofType==='photo'?'📷 Photo required':picked.proofType==='quiz'?'🧠 Quiz':picked.proofType==='wordle'?'🟩 Wordle':picked.proofType==='zip'?'🔗 Zip':'🔢 Code required'}</div>
       </div>`;
     document.getElementById('overlay-quest-result').classList.add('active');
   }
@@ -1930,6 +1967,11 @@
         if (commsDurLbl) commsDurLbl.textContent = Math.round((settings.sabotageCommsDuration || 420) / 60);
         if (breachDurLbl) breachDurLbl.textContent = Math.round((settings.sabotageBreachDuration || 300) / 60);
         if (rallyLbl) rallyLbl.textContent = settings.sabotageRallyLocation || '—';
+        // Settings changed live — re-render the current game view so settings-dependent
+        // UI updates immediately (quest mode, role boxes, fake emergency, etc.) without a refresh.
+        if (gameState && currentPhase === 'playing' && myRole) {
+          try { renderGame(); } catch (e) {}
+        }
       }
     });
   }
@@ -2029,9 +2071,9 @@
           <div style="flex:1;">
             <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location||''}</div>
             <div style="font-weight:500;">${m.description.replace('{pass}', settings.quizPassScore||4)}</div>
-            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo' : m.proofType === 'audio' ? '🎙 Audio' : m.proofType==='quiz'?'🧠 Quiz':m.proofType==='wordle'?'🟩 Wordle':'🔢 Code'}</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.proofType === 'photo' ? '📷 Photo' : m.proofType === 'audio' ? '🎙 Audio' : m.proofType==='quiz'?'🧠 Quiz':m.proofType==='wordle'?'🟩 Wordle':m.proofType==='zip'?'🔗 Zip':'🔢 Code'}</div>
           </div>
-          <button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="${m.category==='coop'?`openCoopByKey('${mkey}')`:(m.proofType==='quiz'?`openQuizByKey('${mkey}',0)`:(m.proofType==='wordle'?`openWordleByKey('${mkey}')`:`openProofByKey('${mkey}')`))}">Complete</button>
+          <button class="btn btn-ghost" style="width:auto; padding:6px 12px; font-size:12px; flex-shrink:0;" onclick="${m.category==='coop'?`openCoopByKey('${mkey}')`:(m.proofType==='quiz'?`openQuizByKey('${mkey}',0)`:(m.proofType==='wordle'?`openWordleByKey('${mkey}')`:(m.proofType==='zip'?`openZipByKey('${mkey}')`:`openProofByKey('${mkey}')`)))}">Complete</button>
         </div>
       </div>
     `).join('');
@@ -2052,10 +2094,10 @@
           <div style="flex:1;">
             <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${m.location || ''} ${m.category ? '· '+m.category : ''}</div>
             <div style="font-weight:500;">${m.description.replace('{pass}', settings.quizPassScore||4)}</div>
-            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.category==='coop' ? '👥 Co-op mission' : m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : m.proofType === 'none' ? '✔ No proof' : m.proofType === 'quiz' ? '🧠 Quiz' : m.proofType === 'wordle' ? '🟩 Wordle' : '🔢 Secret code required'}</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:4px;">${m.category==='coop' ? '👥 Co-op mission' : m.proofType === 'photo' ? '📷 Photo required' : m.proofType === 'audio' ? '🎙 Audio required' : m.proofType === 'none' ? '✔ No proof' : m.proofType === 'quiz' ? '🧠 Quiz' : m.proofType === 'wordle' ? '🟩 Wordle' : m.proofType === 'zip' ? '🔗 Zip' : '🔢 Secret code required'}</div>
           </div>
           <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;">
-            <button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="${m.category==='coop'?`openCoopByKey('${mkey}')`:(m.proofType==='quiz'?`openQuizByKey('${mkey}',0)`:(m.proofType==='wordle'?`openWordleByKey('${mkey}')`:`openProofByKey('${mkey}')`))}">${m.category==='coop'?'👥 Co-op':m.proofType==='quiz'?'🧠 Quiz':m.proofType==='wordle'?'🟩 Wordle':'Complete'}</button>
+            <button class="btn btn-primary" style="width:auto; padding:6px 12px; font-size:12px;" onclick="${m.category==='coop'?`openCoopByKey('${mkey}')`:(m.proofType==='quiz'?`openQuizByKey('${mkey}',0)`:(m.proofType==='wordle'?`openWordleByKey('${mkey}')`:(m.proofType==='zip'?`openZipByKey('${mkey}')`:`openProofByKey('${mkey}')`)))}">${m.category==='coop'?'👥 Co-op':m.proofType==='quiz'?'🧠 Quiz':m.proofType==='wordle'?'🟩 Wordle':m.proofType==='zip'?'🔗 Zip':'Complete'}</button>
             <button class="btn btn-ghost" style="width:auto; padding:5px 12px; font-size:11px;" onclick="rerollTaskByKey('${mkey}')">🎲 Reroll</button>
           </div>
         </div>
@@ -3203,6 +3245,30 @@
     closeOverlay('overlay-coop');
   }
 
+  window.useFakeEmergency = async function() {
+    if (myRole !== 'impostor') return;
+    const enabled = settings.fakeEmergencyEnabled !== 0 && settings.fakeEmergencyEnabled !== false;
+    if (!enabled) return;
+    const me = gameState.players?.[myPlayerId];
+    if (!me || !me.alive || me.temporarilyDead) { showToast("You're eliminated"); return; }
+    if (me.fakeEmergencyUsed) { showToast('Fake emergency already used'); return; }
+    if (gameState.meetingActive || gameState.votingActive) { showToast('A meeting is already active'); return; }
+    if (!confirm('Call a fake emergency meeting? This is your only one this game.')) return;
+    const now = Date.now();
+    const meetingEnd = now + (settings.meetingDuration||300)*1000;
+    // Bypasses the shared emergency cooldown AND comms sabotage — it's the impostor's special power
+    await update(ref(db), {
+      [GAME_REF+'/emergencyCalledBy']: myPlayerId,
+      [GAME_REF+'/meetingActive']: true,
+      [GAME_REF+'/meetingEndTime']: meetingEnd,
+      [GAME_REF+'/emergencyCooldownUntil']: now + (settings.emergencyCooldown||180)*1000,
+      [GAME_REF+'/votingActive']: false,
+      [GAME_REF+'/votes']: null,
+      [GAME_REF+'/players/'+myPlayerId+'/fakeEmergencyUsed']: true
+    });
+    showToast('📢 Fake emergency called!');
+  }
+
   window.callEmergency = async function() {
     if (gameState.meetingActive || gameState.votingActive) return;
     // Dead players cannot call emergency meetings
@@ -3442,6 +3508,236 @@
     inp.value = ''; inp.disabled = false;
     document.getElementById('wordle-guess-btn').disabled = false;
     document.getElementById('wordle-msg').textContent = firstMsg || '';
+  }
+
+  // ===== ZIP mission (LinkedIn-style path puzzle) =====
+  let _zipMissionKey = null, _zipSize = 5, _zipNumbers = {}, _zipPath = [], _zipNext = 2, _zipMaxNum = 1, _zipWalls = new Set();
+
+  function _zipNeighbors(cell, size) {
+    const r = Math.floor(cell / size), c = cell % size, res = [];
+    if (r > 0) res.push(cell - size);
+    if (r < size - 1) res.push(cell + size);
+    if (c > 0) res.push(cell - 1);
+    if (c < size - 1) res.push(cell + 1);
+    return res;
+  }
+
+  // Build a random Hamiltonian path (covers every cell once) using randomized DFS + Warnsdorff
+  function _zipHamiltonian(size) {
+    const N = size * size;
+    let steps = 0;
+    const visited = new Array(N).fill(false);
+    const path = [];
+    function dfs(cell) {
+      if (++steps > 300000) return false;
+      visited[cell] = true; path.push(cell);
+      if (path.length === N) return true;
+      let nbrs = _zipNeighbors(cell, size).filter(n => !visited[n]);
+      // randomize, then prefer neighbors with fewest onward options (Warnsdorff)
+      for (let i = nbrs.length - 1; i > 0; i--) { const j = Math.floor(Math.random()*(i+1)); [nbrs[i],nbrs[j]]=[nbrs[j],nbrs[i]]; }
+      nbrs.sort((a,b) => _zipNeighbors(a,size).filter(n=>!visited[n]).length - _zipNeighbors(b,size).filter(n=>!visited[n]).length);
+      for (const n of nbrs) { if (dfs(n)) return true; }
+      visited[cell] = false; path.pop();
+      return false;
+    }
+    for (let t = 0; t < 40; t++) {
+      steps = 0; visited.fill(false); path.length = 0;
+      if (dfs(Math.floor(Math.random() * N))) return path.slice();
+    }
+    // Fallback: boustrophedon (snake) path — always valid
+    const snake = [];
+    for (let r = 0; r < size; r++) {
+      if (r % 2 === 0) for (let c = 0; c < size; c++) snake.push(r*size + c);
+      else for (let c = size-1; c >= 0; c--) snake.push(r*size + c);
+    }
+    return snake;
+  }
+
+  function _zipWallKey(a, b) { return Math.min(a,b) + '_' + Math.max(a,b); }
+
+  function _zipGenerate() {
+    const size = [4,5,5,5,6][Math.floor(Math.random()*5)];
+    const N = size * size;
+    const path = _zipHamiltonian(size);
+    const k = Math.min(9, Math.max(5, Math.round(N / 4)));
+    const chosen = new Set([0, N - 1]);
+    while (chosen.size < k) chosen.add(1 + Math.floor(Math.random() * (N - 2)));
+    const sorted = [...chosen].sort((a,b) => a - b);
+    const numbers = {};
+    sorted.forEach((pIdx, i) => { numbers[path[pIdx]] = i + 1; });
+    // Solution edges (never wall these, so the puzzle stays solvable)
+    const solutionEdges = new Set();
+    for (let i = 1; i < path.length; i++) solutionEdges.add(_zipWallKey(path[i-1], path[i]));
+    // Candidate walls = adjacent cell pairs NOT used by the solution
+    const candidates = [];
+    for (let cell = 0; cell < N; cell++) {
+      _zipNeighbors(cell, size).forEach(n => {
+        if (n > cell) { const key = _zipWallKey(cell, n); if (!solutionEdges.has(key)) candidates.push(key); }
+      });
+    }
+    for (let i = candidates.length - 1; i > 0; i--) { const j = Math.floor(Math.random()*(i+1)); [candidates[i],candidates[j]]=[candidates[j],candidates[i]]; }
+    const wallCount = Math.min(candidates.length, Math.round(N * 0.3));
+    const walls = new Set(candidates.slice(0, wallCount));
+    return { size, numbers, maxNum: sorted.length, walls };
+  }
+
+  window.openZipByKey = function(mkey) {
+    const me = gameState.players?.[myPlayerId];
+    const mission = me?.missions?.[mkey];
+    if (!mission) { showToast('Mission not found'); return; }
+    _zipMissionKey = mkey;
+    const puz = _zipGenerate();
+    _zipSize = puz.size; _zipNumbers = puz.numbers; _zipMaxNum = puz.maxNum; _zipWalls = puz.walls;
+    // Auto-start the path on cell "1"
+    const startCell = Object.keys(_zipNumbers).find(c => _zipNumbers[c] === 1);
+    _zipPath = [parseInt(startCell)];
+    _zipNext = 2;
+    document.getElementById('zip-msg').textContent = '';
+    document.getElementById('overlay-zip').classList.add('active');
+    _zipRender();
+  };
+
+  window.closeZipTemp = function() { closeOverlay('overlay-zip'); };
+
+  window.zipReset = function() {
+    const startCell = Object.keys(_zipNumbers).find(c => _zipNumbers[c] === 1);
+    _zipPath = [parseInt(startCell)];
+    _zipNext = 2;
+    document.getElementById('zip-msg').textContent = '';
+    document.getElementById('zip-msg').style.color = 'var(--amber)';
+    _zipRender();
+  };
+
+  window.zipTapCell = function(cell) {
+    const size = _zipSize, N = size * size;
+    const last = _zipPath[_zipPath.length - 1];
+    // Tap the current end -> undo (unless it's the start)
+    if (cell === last) {
+      if (_zipPath.length > 1) {
+        const removed = _zipPath.pop();
+        if (_zipNumbers[removed] && _zipNumbers[removed] === _zipNext - 1) _zipNext--;
+      }
+      _zipRender(); return;
+    }
+    // Tap a cell already in the path (not the end) -> ignore
+    if (_zipPath.includes(cell)) return;
+    // Must be orthogonally adjacent to the current end
+    if (!_zipNeighbors(last, size).includes(cell)) return;
+    // Can't cross a wall
+    if (_zipWalls.has(_zipWallKey(last, cell))) {
+      const msg = document.getElementById('zip-msg');
+      msg.style.color = 'var(--imp)'; msg.textContent = 'There\'s a wall there.';
+      return;
+    }
+    // If it's a numbered cell, it must be the next number in sequence
+    if (_zipNumbers[cell]) {
+      if (_zipNumbers[cell] !== _zipNext) {
+        const msg = document.getElementById('zip-msg');
+        msg.style.color = 'var(--imp)';
+        msg.textContent = 'You must reach ' + _zipNext + ' before ' + _zipNumbers[cell] + '.';
+        return;
+      }
+      _zipNext++;
+    }
+    _zipPath.push(cell);
+    // Win: every cell covered AND the path ends on the last number (Zip rule)
+    if (_zipPath.length === N) {
+      if (_zipNumbers[cell] === _zipMaxNum) {
+        _zipWin();
+      } else {
+        const msg = document.getElementById('zip-msg');
+        msg.style.color = 'var(--imp)';
+        msg.textContent = 'All cells filled — but the path must END on ' + _zipMaxNum + '. Undo and finish there.';
+        _zipRender();
+      }
+      return;
+    }
+    document.getElementById('zip-msg').textContent = _zipPath.length + '/' + N + ' cells';
+    document.getElementById('zip-msg').style.color = 'var(--amber)';
+    _zipRender();
+  };
+
+  async function _zipWin() {
+    // Endgame anti-huddle also applies to Zip completion
+    if (questClusterBlocked()) {
+      const msg = document.getElementById('zip-msg');
+      msg.style.color = 'var(--imp)';
+      msg.textContent = 'Too close to another player — spread out to complete (endgame).';
+      const removed = _zipPath.pop(); // undo the final step so they can retry after moving
+      if (_zipNumbers[removed] && _zipNumbers[removed] === _zipNext - 1) _zipNext--;
+      _zipRender();
+      return;
+    }
+    _zipRender();
+    const msg = document.getElementById('zip-msg');
+    msg.style.color = 'var(--green)';
+    msg.textContent = '🎉 Solved! Task complete.';
+    if (navigator.vibrate) navigator.vibrate([60,40,120]);
+    if (_zipMissionKey) {
+      await update(ref(db), { [GAME_REF+'/players/'+myPlayerId+'/missions/'+_zipMissionKey+'/done']: true });
+      checkWinConditions();
+    }
+    setTimeout(() => { closeOverlay('overlay-zip'); showToast('Task completed!'); }, 1300);
+  }
+
+  function _zipRender() {
+    const board = document.getElementById('zip-board');
+    if (!board) return;
+    const size = _zipSize;
+    const total = Math.min(window.innerWidth - 80, 320);
+    const gap = 4;
+    const cellPx = Math.floor((total - gap * (size - 1)) / size);
+    const boardPx = cellPx * size + gap * (size - 1);
+    board.style.width = boardPx + 'px';
+    board.style.height = boardPx + 'px';
+    const pathPos = _zipPath.indexOf.bind(_zipPath);
+    let html = '';
+    // Layer 1 (z1): cell backgrounds (clickable)
+    for (let cell = 0; cell < size * size; cell++) {
+      const r = Math.floor(cell / size), c = cell % size;
+      const x = c * (cellPx + gap), y = r * (cellPx + gap);
+      const inPath = pathPos(cell) >= 0;
+      const isEnd = _zipPath[_zipPath.length - 1] === cell;
+      const bg = isEnd ? '#2C6FB0' : (inPath ? 'rgba(55,138,221,0.22)' : 'var(--bg3)');
+      const border = isEnd ? '2px solid #6FB0E8' : '1px solid var(--border)';
+      html += `<div onclick="zipTapCell(${cell})" style="position:absolute; left:${x}px; top:${y}px; width:${cellPx}px; height:${cellPx}px; background:${bg}; border:${border}; border-radius:8px; z-index:1; cursor:pointer; box-sizing:border-box;"></div>`;
+    }
+    // Layer 2 (z3): path line through cell centers (above cells, below numbers)
+    const pts = _zipPath.map(cell => {
+      const r = Math.floor(cell / size), c = cell % size;
+      return [c * (cellPx + gap) + cellPx/2, r * (cellPx + gap) + cellPx/2];
+    });
+    const poly = pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    html += `<svg width="${boardPx}" height="${boardPx}" style="position:absolute; top:0; left:0; pointer-events:none; z-index:3;">
+      ${pts.length > 1 ? `<polyline points="${poly}" fill="none" stroke="#378ADD" stroke-width="${Math.max(6, cellPx*0.28)}" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>` : ''}
+    </svg>`;
+    // Layer 3 (z4): number badges (above the path line, so always readable)
+    for (let cell = 0; cell < size * size; cell++) {
+      const num = _zipNumbers[cell];
+      if (!num) continue;
+      const r = Math.floor(cell / size), c = cell % size;
+      const x = c * (cellPx + gap), y = r * (cellPx + gap);
+      const d = Math.floor(cellPx*0.62);
+      html += `<div style="position:absolute; left:${x + (cellPx-d)/2}px; top:${y + (cellPx-d)/2}px; width:${d}px; height:${d}px; border-radius:50%; background:${num===1?'#3aa757':num===_zipMaxNum?'#E0972A':'#1f2733'}; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:${Math.floor(cellPx*0.34)}px; z-index:4; pointer-events:none;">${num}</div>`;
+    }
+    // Layer 4 (z5): walls (above everything)
+    let wallsSvg = '';
+    _zipWalls.forEach(key => {
+      const [a, b] = key.split('_').map(Number);
+      const ra = Math.floor(a/size), ca = a%size;
+      const wsw = Math.max(5, Math.round(gap + 3));
+      if (b === a + 1) {
+        const wx = ca*(cellPx+gap) + cellPx + gap/2;
+        const y1 = ra*(cellPx+gap), y2 = y1 + cellPx;
+        wallsSvg += `<line x1="${wx}" y1="${y1}" x2="${wx}" y2="${y2}" stroke="#F0C040" stroke-width="${wsw}" stroke-linecap="round"/>`;
+      } else {
+        const wy = ra*(cellPx+gap) + cellPx + gap/2;
+        const x1 = ca*(cellPx+gap), x2 = x1 + cellPx;
+        wallsSvg += `<line x1="${x1}" y1="${wy}" x2="${x2}" y2="${wy}" stroke="#F0C040" stroke-width="${wsw}" stroke-linecap="round"/>`;
+      }
+    });
+    html += `<svg width="${boardPx}" height="${boardPx}" style="position:absolute; top:0; left:0; pointer-events:none; z-index:5;">${wallsSvg}</svg>`;
+    board.innerHTML = html;
   }
 
   window.openWordleByKey = function(mkey) {
@@ -4791,6 +5087,8 @@
     if (egAliveEl) egAliveEl.value = settings.endgameAliveThreshold || 5;
     const egRadEl = document.getElementById('admin-live-endgame-radius');
     if (egRadEl) egRadEl.value = settings.endgameClusterRadius || 20;
+    const fakeEmEl = document.getElementById('admin-live-fake-emergency');
+    if (fakeEmEl) fakeEmEl.value = (settings.fakeEmergencyEnabled != 0) ? 1 : 0;
     const spyLocEl = document.getElementById('admin-live-spy-loc');
     if (spyLocEl) spyLocEl.value = settings.spyLocationName || 'Assembly Point';
     const qmEl = document.getElementById('admin-live-quest-mode');
