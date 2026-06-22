@@ -280,7 +280,6 @@
     <div class="tab" onclick="switchImpTab('tasks')">Tasks</div>
     <div class="tab" onclick="switchImpTab('map')">Map</div>
     <div class="tab" onclick="switchImpTab('sabotage')">Sabotage</div>
-    <div class="tab" onclick="switchImpTab('players')">Players</div>
     <div class="tab" onclick="switchImpTab('chat')" id="imp-chat-tab-btn" style="display:none">💬 Chat</div>
     <div class="tab" onclick="switchImpTab('vote')" id="imp-vote-tab-btn" style="display:none">Vote</div>
   </div>
@@ -292,6 +291,9 @@
     <div class="label">Kill a crewmate</div>
     <div style="font-size:13px; color:var(--muted); margin-bottom:12px;">You must be physically near them. Take a secret photo to confirm.</div>
     <div id="kill-list"></div>
+    <div class="spacer-lg"></div>
+    <div class="label">Eliminated</div>
+    <div class="card" id="imp-players-dead"></div>
   </div>
   <div id="imp-tab-tasks" style="display:none">
     <div style="font-size:13px; color:var(--muted); margin-bottom:12px; padding:8px; background:rgba(226,75,74,0.08); border-radius:var(--radius-sm);">Your tasks don't count toward crew progress — but completing them helps you blend in.</div>
@@ -338,13 +340,6 @@
       <div id="sabotage-breach-unlock-notice" style="display:none; background:rgba(224,151,42,0.12); border:0.5px solid rgba(224,151,42,0.4); border-radius:var(--radius-sm); padding:8px 10px; font-size:12px; color:var(--amber); margin-bottom:8px;">🔒 Unlocks when <span id="sabotage-breach-unlock-label">?</span> players have been eliminated.</div>
       <button class="btn btn-danger" id="btn-sabotage-breach" onclick="sendSabotage('breach')" style="font-size:14px; padding:11px;">🔴 Activate Data Breach</button>
     </div>
-  </div>
-  <div id="imp-tab-players" style="display:none">
-    <div class="label">Alive</div>
-    <div class="card" id="imp-players-alive"></div>
-    <div class="spacer"></div>
-    <div class="label">Eliminated</div>
-    <div class="card" id="imp-players-dead"></div>
   </div>
   <div id="imp-tab-chat" style="display:none">
     <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">🔒 Private channel — only impostors can read this.</div>
@@ -1077,6 +1072,7 @@
   let meetingTimerInterval = null;
   let cooldownInterval = null;
   let roleRevealed = false;
+  let _lastStartedAt = null;
   let currentPhase = 'lobby';
 
   window.showAdminJoin = function() {
@@ -1342,6 +1338,7 @@
     updates[GAME_REF + '/questsToWin'] = settings.questsToWin || 3;
     updates[GAME_REF + '/emergencyCooldownUntil'] = 0;
     updates[GAME_REF + '/state'] = 'playing';
+    updates[GAME_REF + '/startedAt'] = Date.now();
     updates[GAME_REF + '/sabotageUsed'] = false;
     updates[GAME_REF + '/sabotageType'] = null;
     updates[GAME_REF + '/sabotageCommsUntil'] = null;
@@ -1391,6 +1388,7 @@
   }
 
   function showRoleReveal() {
+    _lastStartedAt = gameState?.startedAt || _lastStartedAt;
     const role = myRole;
     const me = gameState?.players?.[myPlayerId];
     const amStalker = me?.isStalker;
@@ -1449,7 +1447,30 @@
     onValue(ref(db, GAME_REF), (snap) => {
       if (!snap.exists()) return;
       gameState = snap.val();
+      // Detect a new game (startedAt changed) — reset stale per-game local state so the
+      // task screen / role don't carry over from the previous game without a refresh.
+      if (gameState.startedAt) {
+        if (_lastStartedAt === null) {
+          _lastStartedAt = gameState.startedAt; // first sight (incl. reconnect) — sync, don't reset
+        } else if (gameState.startedAt !== _lastStartedAt) {
+          _lastStartedAt = gameState.startedAt;
+          roleRevealed = false;
+          myRole = null;
+          currentPhase = 'playing';
+          window._lastShownRecap = null;
+        }
+      }
       if (gameState.state === 'ended') { showResult(); return; }
+      // Role-reveal transition (works for the first game and every new game, independent of listenLobby)
+      if (gameState.state === 'playing' && !roleRevealed) {
+        const myData = gameState.players?.[myPlayerId];
+        if (myData?.role) {
+          roleRevealed = true;
+          myRole = myData.role;
+          showRoleReveal();
+          return;
+        }
+      }
       handleGameState();
     });
   }
@@ -1685,7 +1706,6 @@
     } else {
       document.getElementById('imp-paused-notice').style.display = isPaused ? 'block' : 'none';
       renderKillList(alive.filter(p => p.role !== 'impostor'));
-      renderPlayerList('imp-players-alive', alive, false, true);
       renderPlayerList('imp-players-dead', dead, false, true);
       renderCooldown();
       const sabotageUsed = gameState.sabotageUsed; // only Data Breach sets this
@@ -4823,7 +4843,7 @@
   }
 
   window.switchImpTab = function(tab) {
-    ['kill','tasks','map','sabotage','players','vote','chat'].forEach(t => {
+    ['kill','tasks','map','sabotage','vote','chat'].forEach(t => {
       const el = document.getElementById('imp-tab-'+t);
       if (el) el.style.display = t===tab ? 'block' : 'none';
       const btn = document.querySelector(`[onclick="switchImpTab('${t}')"]`);
