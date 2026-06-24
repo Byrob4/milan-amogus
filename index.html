@@ -300,6 +300,8 @@
     <button class="btn btn-primary" id="btn-scan-qr-imp" onclick="openQRScanner()" style="margin-bottom:12px;">📷 Scan location QR</button>
     <div id="quest-prox-hint-imp" style="display:none; font-size:13px; color:#85B7EB; background:rgba(55,138,221,0.08); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:12px; text-align:center;">📍 Walk near a location to unlock its quest automatically.</div>
     <div id="imp-tasks-list"></div>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost" onclick="openCoopJoin()">👥 Join a co-op</button>
   </div>
   <div id="imp-tab-map" style="display:none">
     <div style="text-align:center; position:relative; display:inline-block; width:100%;">
@@ -359,9 +361,10 @@
     <button class="btn btn-ghost" id="imp-btn-confirm-vote" onclick="confirmVoteImp()" disabled>Confirm vote</button>
   </div>
   <div class="gap"></div>
-  <button class="btn btn-ghost" onclick="openCoopJoin()" style="margin-bottom:8px;">👥 Join a co-op</button>
-  <button class="btn btn-ghost" id="imp-btn-emergency" onclick="callEmergency()">🚨 Emergency meeting</button>
-  <button class="btn btn-danger" id="imp-btn-fake-emergency" onclick="useFakeEmergency()" style="display:none; margin-top:8px;">📢 Fake emergency call (1 per game)</button>
+  <div id="imp-emergency-split" style="display:flex; gap:2px; border-radius:var(--radius); overflow:hidden;">
+    <button class="btn btn-ghost" id="imp-btn-emergency" onclick="callEmergency()" style="flex:1; border-radius:0; margin:0;">🚨 Emergency</button>
+    <button class="btn btn-danger" id="imp-btn-fake-emergency" onclick="useFakeEmergency()" style="flex:1; border-radius:0; margin:0;">📢 Fake (1×)</button>
+  </div>
   <div class="spacer"></div>
   <button class="btn btn-ghost" style="font-size:13px; padding:10px;" onclick="openReport()">⚠ Report player</button>
 </div>
@@ -1163,7 +1166,15 @@
     myName = savedName;
     myRole = player.role;
     roleRevealed = true;
-    isAdmin = localStorage.getItem('amogus_is_admin') === '1';
+    // Admin is NOT restored from localStorage alone — re-verify the password this session.
+    isAdmin = false; _adminPanelAuthed = false;
+    if (localStorage.getItem('amogus_is_admin') === '1') {
+      await loadSettings();
+      const expected = String(settings.adminPassword || ADMIN_PASSWORD_DEFAULT).trim();
+      const entered = (window.prompt('Reconnect as admin? Enter the admin password (or Cancel to continue as a normal player):') || '').trim();
+      if (entered && entered === expected) { isAdmin = true; _adminPanelAuthed = true; }
+      else { localStorage.removeItem('amogus_is_admin'); }
+    }
     if (isAdmin) document.getElementById('admin-float-btn').style.display = 'block';
     gameState = g;
     if (g.state === 'lobby') {
@@ -1206,7 +1217,8 @@
     myPlayerId = getPlayerId();
     myName = name;
     localStorage.setItem('amogus_player_name', name);
-    if (!isAdmin) isAdmin = localStorage.getItem('amogus_is_admin') === '1';
+    // NOTE: admin is granted ONLY by joining via "Join as admin" with the correct password
+    // (which sets isAdmin before calling joinGame). A normal join is never admin.
     roleRevealed = false;
     await loadMissions();
     await loadQuizzes();
@@ -1624,9 +1636,9 @@
     }
     // Hide emergency buttons for everyone during meeting
     const be = document.getElementById('btn-emergency');
-    const ie = document.getElementById('imp-btn-emergency');
+    const ie = document.getElementById('imp-emergency-split');
     if (be) { be.disabled = true; be.style.display = 'none'; }
-    if (ie) { ie.disabled = true; ie.style.display = 'none'; }
+    if (ie) { ie.style.display = 'none'; }
     // Stay on current screen (main/impostor) — don't redirect
     const callerName = gameState.players[gameState.emergencyCalledBy]?.name || 'Someone';
     document.getElementById('meeting-banner-caller').textContent = `Called by ${callerName}`;
@@ -1661,9 +1673,9 @@
   function showVotingScreen() {
     // Hide emergency buttons during vote
     const be = document.getElementById('btn-emergency');
-    const ie = document.getElementById('imp-btn-emergency');
+    const ie = document.getElementById('imp-emergency-split');
     if (be) { be.disabled = true; be.style.display = 'none'; }
-    if (ie) { ie.disabled = true; ie.style.display = 'none'; }
+    if (ie) { ie.style.display = 'none'; }
     if (myRole === 'impostor') {
       showScreen('screen-impostor');
       switchImpTab('vote');
@@ -1808,19 +1820,17 @@
       const chatTabBtn = document.getElementById('imp-chat-tab-btn');
       if (chatTabBtn) chatTabBtn.style.display = totalImpostors >= 2 ? '' : 'none';
       attachImpChatListener();
-      // Fake emergency: once per game, shown only if enabled, unused, and alive
+      // Emergency: a split button (normal | fake). The fake half is shown only while it's
+      // available (enabled, alive, unused); once used it disappears and normal fills the button.
+      const splitEl = document.getElementById('imp-emergency-split');
       const fakeBtn = document.getElementById('imp-btn-fake-emergency');
-      if (fakeBtn) {
-        const enabled = settings.fakeEmergencyEnabled !== 0 && settings.fakeEmergencyEnabled !== false;
-        const canUse = enabled && me.alive && !me.temporarilyDead && !me.fakeEmergencyUsed;
-        fakeBtn.style.display = canUse ? 'block' : 'none';
-      }
-      const impBtnEmergency = document.getElementById('imp-btn-emergency');
-      if (impBtnEmergency) {
-        const emergencyActiveImp = !!gameState.meetingActive || !!gameState.votingActive;
-        impBtnEmergency.disabled = emergencyActiveImp || isPaused;
-        impBtnEmergency.style.display = emergencyActiveImp ? 'none' : 'block';
-      }
+      const normBtn = document.getElementById('imp-btn-emergency');
+      const emergencyActive = !!gameState.meetingActive || !!gameState.votingActive;
+      if (splitEl) splitEl.style.display = emergencyActive ? 'none' : 'flex';
+      if (normBtn) { normBtn.disabled = emergencyActive || isPaused; }
+      const fakeEnabled = settings.fakeEmergencyEnabled !== 0 && settings.fakeEmergencyEnabled !== false;
+      const canFake = fakeEnabled && me.alive && !me.temporarilyDead && !me.fakeEmergencyUsed;
+      if (fakeBtn) fakeBtn.style.display = canFake ? 'block' : 'none';
     }
 
     // === SABOTAGE EFFECTS ===
@@ -4918,9 +4928,6 @@
       const btn = document.querySelector(`[onclick="switchImpTab('${t}')"]`);
       if (btn) btn.classList.toggle('active', t===tab);
     });
-    // Hide coop + emergency buttons during vote tab
-    const coopBtn = document.querySelector('#screen-impostor .btn-ghost[onclick="openCoopJoin()"]');
-    if (coopBtn) coopBtn.style.display = tab === 'vote' ? 'none' : '';
     if (tab==='vote') {
       document.getElementById('imp-vote-tab-btn').style.display = '';
       renderVoting();
@@ -5639,6 +5646,7 @@
   }
 
   window.adminRemoveFromLobby = async function(pid) {
+    if (!isAdmin) { showToast('Admin only'); return; }
     await remove(ref(db, GAME_REF+'/players/'+pid));
     showToast('Player removed');
   }
