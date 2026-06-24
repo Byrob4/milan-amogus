@@ -1247,6 +1247,7 @@
     onValue(ref(db, GAME_REF), (snap) => {
       if (!snap.exists()) return;
       gameState = snap.val();
+      if (detectNewGameAndReveal(gameState)) return;
       // One-time transition: lobby -> role reveal once the admin starts and our role is set
       if (gameState.state === 'playing' && !roleRevealed) {
         const myPlayerData = gameState.players?.[myPlayerId];
@@ -1490,6 +1491,34 @@
   }
 
   let _gameListenerAttached = false;
+  // Detect a brand-new game (startedAt changed) from ANY listener, reset stale per-game
+  // local state, clear leftover meeting/vote/recap UI, and jump straight to the role reveal.
+  // Returns true if it handled a new-game transition (caller should stop further processing).
+  function detectNewGameAndReveal(g) {
+    if (!g || !g.startedAt) return false;
+    if (_lastStartedAt === null) { _lastStartedAt = g.startedAt; return false; } // first sight — sync only
+    if (g.startedAt === _lastStartedAt) return false;
+    // ---- NEW GAME ----
+    _lastStartedAt = g.startedAt;
+    roleRevealed = false; myRole = null; currentPhase = 'playing';
+    window._lastShownRecap = null;
+    window._lastReportTs = Date.now();
+    mySelectedVote = null;
+    _aliveSnapshot = null; // reset death baseline
+    try { if (meetingTimerInterval) clearInterval(meetingTimerInterval); } catch (e) {}
+    stopSiren && stopSiren();
+    const mb = document.getElementById('meeting-banner'); if (mb) mb.style.display = 'none';
+    const mp = document.getElementById('meeting-pill'); if (mp) mp.style.display = 'none';
+    const rb = document.getElementById('report-banner'); if (rb) rb.style.display = 'none';
+    // Jump to role reveal as soon as our new role is available
+    const myData = g.players?.[myPlayerId];
+    if (g.state === 'playing' && myData?.role) {
+      roleRevealed = true; myRole = myData.role;
+      showRoleReveal();
+    }
+    return true;
+  }
+
   function listenGame() {
     if (!hackingListenerAttached) { listenHacking(); hackingListenerAttached = true; startGPS(); }
     listenSettings();
@@ -1499,21 +1528,9 @@
       if (!snap.exists()) return;
       gameState = snap.val();
       checkDeathNotifications();
-      // Detect a new game (startedAt changed) — reset stale per-game local state so the
-      // task screen / role don't carry over from the previous game without a refresh.
-      if (gameState.startedAt) {
-        if (_lastStartedAt === null) {
-          _lastStartedAt = gameState.startedAt; // first sight (incl. reconnect) — sync, don't reset
-        } else if (gameState.startedAt !== _lastStartedAt) {
-          _lastStartedAt = gameState.startedAt;
-          roleRevealed = false;
-          myRole = null;
-          currentPhase = 'playing';
-          window._lastShownRecap = null;
-        }
-      }
+      if (detectNewGameAndReveal(gameState)) return;
       if (gameState.state === 'ended') { showResult(); return; }
-      // Role-reveal transition (works for the first game and every new game, independent of listenLobby)
+      // Role-reveal transition (first game / fallback)
       if (gameState.state === 'playing' && !roleRevealed) {
         const myData = gameState.players?.[myPlayerId];
         if (myData?.role) {
