@@ -574,6 +574,14 @@
       </select>
       <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('fakeEmergencyEnabled','admin-live-fake-emergency')">Set</button>
     </div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">💀 Death notifications (announce to everyone)</div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+      <select id="admin-live-death-notif" style="flex:1;">
+        <option value="1">Enabled</option>
+        <option value="0">Disabled</option>
+      </select>
+      <button class="btn btn-ghost" style="width:auto; padding:8px 12px; font-size:13px;" onclick="saveLiveSelect('deathNotifications','admin-live-death-notif')">Set</button>
+    </div>
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Spy — Assembly Point location name</div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
       <input type="text" id="admin-live-spy-loc" style="flex:1;" placeholder="Assembly Point" maxlength="60" />
@@ -1055,7 +1063,7 @@
   let myName = null;
   let myRole = null;
   let gameState = null;
-  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true, hitShieldDuration: 60, spyEnabled: true, spyLocationName: 'Assembly Point', questMode: 'qr', questProximity: 30, investigatorEnabled: true, investigatorTasksPerUse: 2, endgameAliveThreshold: 5, endgameClusterRadius: 20, fakeEmergencyEnabled: true };
+  let settings = { cooldown: 120, tasksPerPlayer: 3, voteDuration: 60, meetingDuration: 300, impostorCount: 1, faceDetection: 1, photoReview: 0, lives: 2, emergencyCooldown: 180, reviewDuration: 30, killRevealDelay: 60, rerollCooldown: 60, quizPassScore: 4, adminPassword: ADMIN_PASSWORD_DEFAULT, sabotageCommsDuration: 420, sabotageBreachDuration: 300, sabotageRallyLocation: '', sabotageBreachUnlockKills: 1, questsToWin: 3, gamePassword: '', stalkerEnabled: true, hitShieldDuration: 60, spyEnabled: true, spyLocationName: 'Assembly Point', questMode: 'qr', questProximity: 30, investigatorEnabled: true, investigatorTasksPerUse: 2, endgameAliveThreshold: 5, endgameClusterRadius: 20, fakeEmergencyEnabled: true, deathNotifications: true };
   let allMissions = [];
   let mySelectedVote = null;
   let killTarget = null;
@@ -1436,6 +1444,49 @@
       startCooldownTick();
     }
     listenGame();
+    renderGame(); // render immediately — the listener may already be attached (new game), so don't wait for the next event
+  }
+
+  // ===== DEATH NOTIFICATIONS (broadcast to everyone when a player dies) =====
+  let _aliveSnapshot = null;
+  function checkDeathNotifications() {
+    if (!gameState || !gameState.players) return;
+    const cur = {};
+    Object.entries(gameState.players).forEach(([pid, p]) => { cur[pid] = (p.alive !== false); });
+    const enabled = settings.deathNotifications !== 0 && settings.deathNotifications !== false;
+    if (_aliveSnapshot && enabled && gameState.state === 'playing') {
+      Object.keys(cur).forEach(pid => {
+        if (_aliveSnapshot[pid] === true && cur[pid] === false) {
+          notifyDeath(gameState.players[pid]?.name || 'A player');
+        }
+      });
+    }
+    _aliveSnapshot = cur; // always refresh baseline (incl. first sight & new games)
+  }
+
+  function notifyDeath(name) {
+    showToast('💀 ' + name + ' has died', 4500);
+    if (navigator.vibrate) try { navigator.vibrate([120, 60, 120, 60, 240]); } catch (e) {}
+    playDeathSound();
+  }
+
+  function playDeathSound() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const now = ctx.currentTime;
+      [[440, 0], [220, 0.18]].forEach(([freq, t]) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + t);
+        gain.gain.setValueAtTime(0.0001, now + t);
+        gain.gain.exponentialRampToValueAtTime(0.25, now + t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.22);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(now + t); osc.stop(now + t + 0.24);
+      });
+      setTimeout(() => { try { ctx.close(); } catch (e) {} }, 700);
+    } catch (e) {}
   }
 
   let _gameListenerAttached = false;
@@ -1447,6 +1498,7 @@
     onValue(ref(db, GAME_REF), (snap) => {
       if (!snap.exists()) return;
       gameState = snap.val();
+      checkDeathNotifications();
       // Detect a new game (startedAt changed) — reset stale per-game local state so the
       // task screen / role don't carry over from the previous game without a refresh.
       if (gameState.startedAt) {
@@ -5109,6 +5161,8 @@
     if (egRadEl) egRadEl.value = settings.endgameClusterRadius || 20;
     const fakeEmEl = document.getElementById('admin-live-fake-emergency');
     if (fakeEmEl) fakeEmEl.value = (settings.fakeEmergencyEnabled != 0) ? 1 : 0;
+    const deathNotifEl = document.getElementById('admin-live-death-notif');
+    if (deathNotifEl) deathNotifEl.value = (settings.deathNotifications != 0) ? 1 : 0;
     const spyLocEl = document.getElementById('admin-live-spy-loc');
     if (spyLocEl) spyLocEl.value = settings.spyLocationName || 'Assembly Point';
     const qmEl = document.getElementById('admin-live-quest-mode');
