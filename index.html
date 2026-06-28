@@ -1097,6 +1097,18 @@
     document.getElementById('join-player-form').style.display = 'block';
     document.getElementById('join-admin-form').style.display = 'none';
   }
+  // Keep this device's admin-session token in sync with the live forceLobby value. Without
+  // this, an admin who triggers a reset/new-game themselves (which rotates forceLobby) would
+  // find their OWN stored token stale on the next reconnect and silently lose admin status —
+  // even though they're clearly still the legitimate admin who just performed that action.
+  async function syncAdminSession() {
+    if (!isAdmin) return;
+    try {
+      const flSnap = await get(ref(db, GAME_REF + '/forceLobby'));
+      localStorage.setItem('amogus_admin_session', String(flSnap.exists() ? flSnap.val() : 0));
+    } catch (e) { /* best-effort — a stale token just means a fresh password prompt next time */ }
+  }
+
   window.joinAsAdmin = async function() {
     const pw = document.getElementById('input-admin-pw').value;
     const name = document.getElementById('input-admin-name').value.trim();
@@ -1110,10 +1122,7 @@
     // Bind this device's admin status to the CURRENT lobby/game session, so later
     // reconnects within the same game restore admin silently — but a brand-new game
     // (newGame() rotates forceLobby) will require verifying the password again.
-    try {
-      const flSnap = await get(ref(db, GAME_REF + '/forceLobby'));
-      localStorage.setItem('amogus_admin_session', String(flSnap.exists() ? flSnap.val() : 0));
-    } catch (e) { localStorage.setItem('amogus_admin_session', '0'); }
+    await syncAdminSession();
     document.getElementById('input-name').value = name;
     await joinGame();
   }
@@ -5418,6 +5427,7 @@
     await update(ref(db), updates);
     await remove(ref(db, HACKING_REF));
     await remove(ref(db, POSITIONS_REF));
+    await syncAdminSession();
   }
 
   window.switchAdminFloatTab = function(tab) {
@@ -5815,6 +5825,7 @@
     }
     await update(ref(db), updates);
     await remove(ref(db, HACKING_REF));
+    await syncAdminSession();
   }
 
   window.adminResetGame = async function() {
