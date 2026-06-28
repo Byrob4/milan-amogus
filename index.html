@@ -1247,6 +1247,24 @@
         const reconnected = await tryAutoReconnect();
         if (reconnected) return;
       }
+      if (isAdmin) {
+        // Admins are never locked out by an in-progress game: ask whether to reset it,
+        // then let them straight into the lobby either way (where the settings panel,
+        // including Reset game, is always reachable if they change their mind).
+        const wantsReset = window.confirm('A game is already in progress. Reset it and start a fresh lobby?');
+        if (wantsReset) await performGameReset();
+        await update(ref(db, GAME_REF + '/players/' + myPlayerId), {
+          name, alive: true, joinedAt: Date.now(),
+          color: (() => {
+            const usedColors = Object.values(gameState?.players || {}).map(p => p.color).filter(Boolean);
+            const available = PLAYER_COLORS.filter(c => !usedColors.includes(c));
+            return available.length ? available[0] : PLAYER_COLORS[Object.keys(gameState?.players||{}).length % PLAYER_COLORS.length];
+          })()
+        });
+        showScreen('screen-lobby');
+        listenLobby();
+        return;
+      }
       showToast('A game is already in progress'); return;
     }
     await update(ref(db, GAME_REF + '/players/' + myPlayerId), {
@@ -5752,7 +5770,7 @@
 
 
 
-  window.adminResetGame = async function() {
+  async function performGameReset() {
     // Reset game data but keep players, use forceLobby to push everyone to lobby
     const snap = await get(ref(db, GAME_REF+'/players'));
     const updates = {
@@ -5795,6 +5813,10 @@
     }
     await update(ref(db), updates);
     await remove(ref(db, HACKING_REF));
+  }
+
+  window.adminResetGame = async function() {
+    await performGameReset();
     showToast('Game reset');
     // Force local transition to lobby
     roleRevealed = false;
