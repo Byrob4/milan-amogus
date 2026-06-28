@@ -1262,6 +1262,7 @@
           })()
         });
         showScreen('screen-lobby');
+        document.getElementById('admin-float-btn').style.display = 'block';
         listenLobby();
         return;
       }
@@ -1320,6 +1321,7 @@
       if (btnStart) btnStart.style.display = (isAdmin && plist.length >= minP) ? 'block' : 'none';
       const adminLobby = document.getElementById('admin-lobby-controls');
       if (adminLobby) adminLobby.style.display = isAdmin ? 'block' : 'none';
+      if (isAdmin) document.getElementById('admin-float-btn').style.display = 'block';
       if (statusEl) statusEl.textContent = plist.length + ' player' + (plist.length!==1?'s':'') + ' in lobby (need ' + minP + ' to start)';
     });
   }
