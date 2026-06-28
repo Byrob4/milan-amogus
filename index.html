@@ -214,7 +214,10 @@
   </div>
   <div id="tab-tasks">
     <div class="label" id="progress-label">Your quest progress</div>
-    <div id="spy-hint" style="display:none; background:rgba(55,138,221,0.10); border:0.5px solid rgba(55,138,221,0.4); border-radius:var(--radius); padding:11px 14px; margin-bottom:14px; font-size:13px; color:#85B7EB;">🛰 <b>Spy:</b> scan the <span id="spy-hint-loc">Assembly Point</span> QR to reveal every player on a live radar.</div>
+    <div id="spy-hint" style="display:none; background:rgba(55,138,221,0.10); border:0.5px solid rgba(55,138,221,0.4); border-radius:var(--radius); padding:11px 14px; margin-bottom:14px; font-size:13px; color:#85B7EB;">
+      🛰 <b>Spy:</b> walk to <span id="spy-hint-loc">Assembly Point</span> to reveal every player on a live radar.
+      <button class="btn btn-ghost" id="spy-reopen-btn" onclick="openSpyRadar()" style="display:none; width:100%; margin-top:8px; padding:9px;">🛰 Open radar</button>
+    </div>
     <div id="investigator-box" style="display:none; background:rgba(201,162,39,0.10); border:0.5px solid rgba(201,162,39,0.45); border-radius:var(--radius); padding:11px 14px; margin-bottom:14px;">
       <div style="font-size:13px; color:#E6C84F; margin-bottom:8px;">🔍 <b>Investigator</b> — <span id="inv-status">Complete tasks to charge your power.</span></div>
       <button class="btn btn-ghost" id="inv-use-btn" onclick="useInvestigate()" style="width:100%;">🔍 Investigate</button>
@@ -266,7 +269,7 @@
 </div>
 
 <!-- IMPOSTOR SCREEN -->
-<div class="screen" id="screen-impostor">
+<div class="screen" id="screen-impostor" style="padding-bottom:64px;">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
     <div>
       <div class="label">Playing as</div>
@@ -381,7 +384,7 @@
     <div id="evidence-list" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;"></div>
   </div>
   <div style="margin-top:24px;" id="audio-evidence-wrap" style="display:none;">
-    <div class="label">Audio recordings</div>
+    <div class="label">Quest memories</div>
     <div id="audio-evidence-list" style="margin-top:10px;"></div>
   </div>
   <div class="gap"></div>
@@ -708,7 +711,7 @@
 <div class="overlay" id="overlay-spy-radar">
   <div class="overlay-box" style="text-align:center; max-width:560px; width:96%;">
     <h3 style="margin-bottom:4px; color:#378ADD;">🛰 Spy Radar</h3>
-    <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Live positions of every player. Closing this revokes access until you rescan.</div>
+    <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Live positions of every player. You can reopen this anytime while you're near the location.</div>
     <canvas id="spy-radar-canvas" style="border-radius:50%; display:block; margin:0 auto 10px;"></canvas>
     <div id="spy-radar-legend" style="text-align:left; max-height:140px; overflow-y:auto; margin-bottom:12px;"></div>
     <button class="btn btn-danger" onclick="closeSpyRadar()">Close radar</button>
@@ -1104,6 +1107,13 @@
     isAdmin = true;
     _adminPanelAuthed = true;
     localStorage.setItem('amogus_is_admin', '1');
+    // Bind this device's admin status to the CURRENT lobby/game session, so later
+    // reconnects within the same game restore admin silently — but a brand-new game
+    // (newGame() rotates forceLobby) will require verifying the password again.
+    try {
+      const flSnap = await get(ref(db, GAME_REF + '/forceLobby'));
+      localStorage.setItem('amogus_admin_session', String(flSnap.exists() ? flSnap.val() : 0));
+    } catch (e) { localStorage.setItem('amogus_admin_session', '0'); }
     document.getElementById('input-name').value = name;
     await joinGame();
   }
@@ -1154,9 +1164,7 @@
     const savedName = localStorage.getItem('amogus_player_name');
     if (!savedId || !savedName) return false;
     showScreen('screen-reconnecting');
-    await loadSettings();
-    await loadMissions();
-    const snap = await get(ref(db, GAME_REF));
+    const [, , snap] = await Promise.all([loadSettings(), loadMissions(), get(ref(db, GAME_REF))]);
     if (!snap.exists()) return false;
     const g = snap.val();
     const player = g.players?.[savedId];
@@ -1166,14 +1174,22 @@
     myName = savedName;
     myRole = player.role;
     roleRevealed = true;
-    // Admin is NOT restored from localStorage alone — re-verify the password this session.
+    // Admin is restored silently if this device already verified the password for the
+    // CURRENT lobby/game (no repeated prompts on every reconnect — that used to block on a
+    // native dialog that mobile browsers can silently swallow on a non-tap-triggered
+    // reconnect, which is why admin status felt like it "randomly" disappeared and
+    // reconnects felt slow). A stale flag from an OLDER game never carries over: newGame()
+    // rotates forceLobby, which invalidates it automatically.
     isAdmin = false; _adminPanelAuthed = false;
     if (localStorage.getItem('amogus_is_admin') === '1') {
-      await loadSettings();
-      const expected = String(settings.adminPassword || ADMIN_PASSWORD_DEFAULT).trim();
-      const entered = (window.prompt('Reconnect as admin? Enter the admin password (or Cancel to continue as a normal player):') || '').trim();
-      if (entered && entered === expected) { isAdmin = true; _adminPanelAuthed = true; }
-      else { localStorage.removeItem('amogus_is_admin'); }
+      const storedSession = localStorage.getItem('amogus_admin_session') || '0';
+      const currentSession = String(g.forceLobby || 0);
+      if (storedSession === currentSession) {
+        isAdmin = true; _adminPanelAuthed = true;
+      } else {
+        localStorage.removeItem('amogus_is_admin');
+        localStorage.removeItem('amogus_admin_session');
+      }
     }
     if (isAdmin) document.getElementById('admin-float-btn').style.display = 'block';
     gameState = g;
@@ -1424,7 +1440,7 @@
       : (amStalker
           ? 'You are a crewmate with a secret: pick someone to follow. If they get attacked, you\'ll see the photo.'
           : amSpy
-          ? 'You are a crewmate with a secret: scan the "' + spyLoc + '" QR to reveal every player on a live radar — but only while the screen stays open.'
+          ? 'You are a crewmate with a secret: walk to "' + spyLoc + '" to reveal every player on a live radar — but only while the screen stays open.'
           : amInv
           ? 'You are a crewmate with a secret: every ' + invN + ' tasks you complete earns one Investigate use, revealing the location nearest to an impostor right now.'
           : 'Complete your tasks. Find the impostor. Survive.');
@@ -1532,7 +1548,13 @@
   }
 
   function listenGame() {
-    if (!hackingListenerAttached) { listenHacking(); hackingListenerAttached = true; startGPS(); }
+    if (!hackingListenerAttached) {
+      listenHacking(); hackingListenerAttached = true; startGPS();
+      // Load locations right away — quests/spy-radar/proximity all depend on this, and it
+      // used to only get populated once the player opened the map tab (so quests near a
+      // location worked only after visiting Map at least once).
+      if (!allLocations.length) loadLocations();
+    }
     listenSettings();
     if (_gameListenerAttached) return;
     _gameListenerAttached = true;
@@ -1702,9 +1724,14 @@
     const players = gameState.players || {};
     const me = players[myPlayerId];
     if (!me) return;
-    const alive = Object.values(players).filter(p => p.alive);
-    const dead = Object.values(players).filter(p => !p.alive);
-    const crewmates = Object.values(players).filter(p => p.role !== 'impostor');
+    // Attach the real Firebase id to each player object up front. Looking it back up by
+    // name later (as several render functions used to do) breaks as soon as two players
+    // share a name — which becomes likely once a lobby has more than a handful of people.
+    const withId = (p, pid) => ({ ...p, id: pid });
+    const entries = Object.entries(players);
+    const alive = entries.filter(([, p]) => p.alive).map(([pid, p]) => withId(p, pid));
+    const dead = entries.filter(([, p]) => !p.alive).map(([pid, p]) => withId(p, pid));
+    const crewmates = entries.filter(([, p]) => p.role !== 'impostor').map(([pid, p]) => withId(p, pid));
     const questsNeeded = gameState.questsToWin || settings.questsToWin || 3;
     // Personal progress — each player sees only their own quest completion
     const myDone = Object.values(me.missions || {}).filter(m => m.done).length;
@@ -1988,7 +2015,7 @@
 
   async function assignQuestFromLocation(locName, silent) {
     if (!myPlayerId || !gameState) { if (!silent) showToast('Not in a game'); return; }
-    // Spy: scanning the Assembly Point opens the full-player radar (session-bound access)
+    // Spy: arriving at the Assembly Point auto-opens the full-player radar (one-shot trigger on arrival)
     const me0 = gameState.players?.[myPlayerId];
     const spyLoc = (settings.spyLocationName || 'Assembly Point').toLowerCase();
     if (me0?.isSpy && locName.trim().toLowerCase() === spyLoc) {
@@ -1999,10 +2026,9 @@
       if (!silent) showToast('Endgame: too close to another player — spread out to do quests');
       return;
     }
-    await loadMissions();
-    const playerSnap = await get(ref(db, GAME_REF+'/players/'+myPlayerId));
-    if (!playerSnap.exists()) { if (!silent) showToast('Player data not found'); return; }
-    const player = playerSnap.val();
+    if (!allMissions.length) await loadMissions(); // cached — load only if not already in memory
+    const player = gameState.players?.[myPlayerId]; // live local state (kept fresh by the realtime listener)
+    if (!player) { if (!silent) showToast('Player data not found'); return; }
     const existingMissions = Object.values(player.missions || {});
 
     document.getElementById('quest-result-loc').textContent = '📍 ' + locName;
@@ -2020,7 +2046,10 @@
       document.getElementById('overlay-quest-result').classList.add('active');
       return;
     }
-    // Build the pool of active missions for THIS location not already assigned to the player
+    // Build the pool of active missions for THIS location not already assigned to the player.
+    // No special case for co-op: same cap as everything else (one per location per player) —
+    // different players can independently get the same co-op mission, enabling multiple
+    // pairings over the course of the game.
     const myDescriptions = new Set(existingMissions.map(m => m.description));
     const pool = allMissions.filter(m =>
       m.active !== false &&
@@ -2043,6 +2072,11 @@
     await update(ref(db, GAME_REF+'/players/'+myPlayerId+'/missions'), {
       [newKey]: { ...missionData, done: false }
     });
+    // Optimistic local update so the task list shows the new quest instantly (no wait for the round-trip)
+    if (gameState.players?.[myPlayerId]) {
+      gameState.players[myPlayerId].missions = { ...(gameState.players[myPlayerId].missions || {}), [newKey]: { ...missionData, done: false } };
+      try { if (myRole === 'impostor') renderImpTasks(); else renderTasks(gameState.players[myPlayerId]); } catch (e) {}
+    }
     document.getElementById('quest-result-title').textContent = '🎯 New quest unlocked!';
     document.getElementById('quest-result-content').innerHTML = `
       <div class="mission-card">
@@ -2245,7 +2279,7 @@
     if (!el) return;
     if (!players.length) { el.innerHTML = '<div style="color:var(--muted); font-size:13px; padding:8px 0;">None</div>'; return; }
     el.innerHTML = players.map(p => {
-      const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
+      const pid = p.id; // real Firebase key, attached upstream — never derived from the name
       // allLives: show everyone's lives (impostor view). showLives: only own lives (crewmate view).
       const showThisLives = (allLives || (showLives && pid === myPlayerId)) && p.alive;
       const livesVal = (p.lives !== undefined && p.lives !== null) ? p.lives : (settings.lives || 2);
@@ -2267,7 +2301,7 @@
     const onCooldown = now < myCdUntil;
     if (!aliveCrew.length) { el.innerHTML = '<div style="color:var(--muted); font-size:14px;">No crewmates left alive.</div>'; return; }
     el.innerHTML = aliveCrew.map(p => {
-      const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
+      const pid = p.id; // real Firebase key, attached upstream — never derived from the name
       const shielded = (p.shieldUntil || 0) > now;
       const recovering = !!p.pendingKill || shielded;
       const livesVal = (p.lives !== undefined && p.lives !== null) ? p.lives : (settings.lives || 2);
@@ -2353,7 +2387,7 @@
     const me = gameState?.players?.[myPlayerId];
     const canVote = me?.alive || me?.pendingKill;
     el.innerHTML = alivePlayers.map(p => {
-      const pid = Object.keys(gameState.players).find(k => gameState.players[k].name === p.name);
+      const pid = p.id; // real Firebase key, attached upstream — never derived from the name
       const voteCount = Object.values(votes).filter(v => v === pid).length;
       const fn = isImpostor ? 'selectVoteImp' : 'selectVote';
       const isSelected = myVote === pid;
@@ -2391,13 +2425,13 @@
   window.selectVote = function(pid) {
     mySelectedVote = pid;
     document.getElementById('btn-confirm-vote').disabled = false;
-    renderVoteGrid('vote-grid', Object.values(gameState.players).filter(p=>p.alive), false);
+    renderVoteGrid('vote-grid', Object.entries(gameState.players).filter(([,p])=>p.alive).map(([pid,p])=>({...p,id:pid})), false);
   }
 
   window.selectVoteImp = function(pid) {
     mySelectedVote = pid;
     document.getElementById('imp-btn-confirm-vote').disabled = false;
-    renderVoteGrid('imp-vote-grid', Object.values(gameState.players).filter(p=>p.alive), true);
+    renderVoteGrid('imp-vote-grid', Object.entries(gameState.players).filter(([,p])=>p.alive).map(([pid,p])=>({...p,id:pid})), true);
   }
 
   async function castVoteAndCheckEarly() {
@@ -2564,30 +2598,37 @@
       `).join('');
     }
 
-    // Audio proofs from completed missions
+    // Quest memories: photo + audio proofs submitted during missions (kill photos stay in
+    // the separate Evidence board above — this is what players photographed/recorded
+    // while actually completing their quests).
     const playersSnap = await get(ref(db, GAME_REF+'/players'));
     const audioEl = document.getElementById('audio-evidence-list');
     const audioWrap = document.getElementById('audio-evidence-wrap');
     if (!playersSnap.exists()) return;
     const players = playersSnap.val();
-    const audioEntries = [];
+    const memoryEntries = [];
     Object.values(players).forEach(p => {
       const missions = Object.values(p.missions || {});
       missions.forEach(m => {
         if (m.done && m.audioProof) {
-          audioEntries.push({ playerName: p.name, location: m.location, description: m.description, audio: m.audioProof });
+          memoryEntries.push({ type: 'audio', playerName: p.name, location: m.location, description: m.description, media: m.audioProof });
+        }
+        if (m.done && m.photoProof) {
+          memoryEntries.push({ type: 'photo', playerName: p.name, location: m.location, description: m.description, media: m.photoProof });
         }
       });
     });
-    if (!audioEntries.length) {
+    if (!memoryEntries.length) {
       audioWrap.style.display = 'none';
     } else {
       audioWrap.style.display = 'block';
-      audioEl.innerHTML = audioEntries.map(a => `
+      audioEl.innerHTML = memoryEntries.map(a => `
         <div style="background:var(--bg2); border:0.5px solid var(--border); border-radius:var(--radius); padding:12px; margin-bottom:10px;">
-          <div style="font-weight:600; font-size:13px; margin-bottom:2px;">🎙 ${a.playerName}</div>
+          <div style="font-weight:600; font-size:13px; margin-bottom:2px;">${a.type === 'photo' ? '📷' : '🎙'} ${a.playerName}</div>
           <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">${a.location} — ${a.description}</div>
-          <audio controls src="${a.audio}" style="width:100%;"></audio>
+          ${a.type === 'photo'
+            ? `<img src="${a.media}" style="width:100%; border-radius:8px; display:block; aspect-ratio:4/3; object-fit:cover;" />`
+            : `<audio controls src="${a.media}" style="width:100%;"></audio>`}
         </div>
       `).join('');
     }
@@ -4063,14 +4104,21 @@
     if (mission.proofType === 'audio' && !proofAudioData) {
       showToast('Record audio first'); return;
     }
+    if (mission.proofType === 'photo' && !proofPhotoData) {
+      showToast('Take a photo first'); return;
+    }
     const missionUpdates = { [GAME_REF+'/players/'+myPlayerId+'/missions/'+missionKey+'/done']: true };
     if (mission.proofType === 'audio' && proofAudioData) {
       missionUpdates[GAME_REF+'/players/'+myPlayerId+'/missions/'+missionKey+'/audioProof'] = proofAudioData;
+    }
+    if (mission.proofType === 'photo' && proofPhotoData) {
+      missionUpdates[GAME_REF+'/players/'+myPlayerId+'/missions/'+missionKey+'/photoProof'] = proofPhotoData;
     }
     await update(ref(db), missionUpdates);
     closeOverlay('overlay-proof');
     showToast('Task completed!');
     proofAudioData = null;
+    proofPhotoData = null;
     checkWinConditions();
   }
 
@@ -4315,7 +4363,28 @@
 
   // Locations currently within proximity (debounce so a quest triggers once per approach)
   let _proximityInRange = new Set();
+  let _locLoadInFlight = false;
   function checkQuestProximity() {
+    // Make sure locations are available even if this player never opened the map tab —
+    // otherwise neither the spy-radar trigger nor this proximity check has anything to compare against.
+    if (!allLocations.length && !_locLoadInFlight) {
+      _locLoadInFlight = true;
+      loadLocations().finally(() => { _locLoadInFlight = false; });
+    }
+    // Spy: keep the "Open radar" button visible/hidden based on live distance to the
+    // assembly point, independent of the once-per-arrival quest debounce below — this is
+    // what lets the Spy reopen the radar after closing it without having to walk away and back.
+    const meSpy = gameState?.players?.[myPlayerId];
+    if (meSpy?.isSpy && myLatLng && gameState?.state === 'playing') {
+      const spyLocName = (settings.spyLocationName || 'Assembly Point').toLowerCase();
+      const spyLocObj = (allLocations || []).find(l => l.name?.toLowerCase() === spyLocName && l.lat && l.lng);
+      const reopenBtn = document.getElementById('spy-reopen-btn');
+      if (spyLocObj && reopenBtn) {
+        const { dist } = gpsToMetres(myLatLng.lat, myLatLng.lng, spyLocObj.lat, spyLocObj.lng);
+        const radius = settings.questProximity || 30;
+        reopenBtn.style.display = (dist <= radius) ? 'block' : 'none';
+      }
+    }
     if ((settings.questMode || 'qr') !== 'proximity') return;
     if (!myLatLng || !gameState || gameState.state !== 'playing') return;
     if (gameState.paused) return;
@@ -4340,7 +4409,7 @@
       }
     });
   }
-  setInterval(checkQuestProximity, 4000);
+  setInterval(checkQuestProximity, 2000);
 
   function gpsToMetres(lat1, lng1, lat2, lng2) {
     const R = 6371000;
@@ -4649,6 +4718,7 @@
     const me = gameState?.players?.[myPlayerId];
     if (!me?.isSpy) { showToast('Only the Spy can use this'); return; }
     startGPS();
+    if (!allLocations.length) await loadLocations();
     document.getElementById('overlay-spy-radar').classList.add('active');
     _spyLegendLast = 0;
     if (navigator.vibrate) navigator.vibrate(40);
@@ -4668,7 +4738,8 @@
     if (_spyRaf) { cancelAnimationFrame(_spyRaf); _spyRaf = null; }
     _spyLastFrame = 0;
     document.getElementById('overlay-spy-radar').classList.remove('active');
-    // Access is revoked — the only way back in is to rescan the Assembly Point QR
+    // The overlay closes, but the "Open radar" button (driven by checkQuestProximity) stays
+    // available the whole time the Spy remains within range — no need to walk away and back.
   };
 
   // ===== INVESTIGATOR power: reveal the location nearest to one impostor, right now =====
@@ -4756,11 +4827,16 @@
       } else { originLat = 0; originLng = 0; }
     }
 
-    // AUTO-ZOOM: range = farthest player distance * 1.2 (min 60m)
+    // AUTO-ZOOM: range = farthest player or location distance * 1.2 (min 60m)
+    const locs = (allLocations || []).filter(l => l.active !== false && l.lat != null && l.lng != null);
     let maxDist = 0;
     others.forEach(o => {
       if (o.isMe && hasGPS) return;
       const { dist } = gpsToMetres(originLat, originLng, o.lat, o.lng);
+      if (dist > maxDist) maxDist = dist;
+    });
+    locs.forEach(l => {
+      const { dist } = gpsToMetres(originLat, originLng, l.lat, l.lng);
       if (dist > maxDist) maxDist = dist;
     });
     const range = Math.max(60, maxDist * 1.2);
@@ -4798,6 +4874,29 @@
 
     const labels = [];
     const legendItems = [];
+
+    // Location markers (gold pins) — drawn first so player dots sit visually on top
+    locs.forEach(l => {
+      const { dist, bearing } = gpsToMetres(originLat, originLng, l.lat, l.lng);
+      const scale = Math.min(dist / range, 0.97);
+      const px = cx + Math.sin(bearing) * r * scale;
+      const py = cy - Math.cos(bearing) * r * scale;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.beginPath();
+      ctx.moveTo(0, -9); ctx.bezierCurveTo(5, -9, 7, -5, 7, -2);
+      ctx.bezierCurveTo(7, 2, 2, 7, 0, 9);
+      ctx.bezierCurveTo(-2, 7, -7, 2, -7, -2);
+      ctx.bezierCurveTo(-7, -5, -5, -9, 0, -9);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(255,194,71,0.92)';
+      ctx.fill();
+      ctx.strokeStyle = '#3a2a05'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(px, py - 1, 2, 0, 2*Math.PI); ctx.fillStyle = '#3a2a05'; ctx.fill();
+      labels.push({ text: l.name, x: px, anchorY: py - 13, color: '#FFC247', prefer: 'up' });
+    });
+
     const FRESH_MS = 20000;   // fully fresh under 20s
     const STALE_MS = 90000;   // fully faded by 90s
     const nowT = Date.now();
