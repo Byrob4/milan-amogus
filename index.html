@@ -5611,17 +5611,52 @@
       pauseBtn.className = isPaused ? 'btn btn-success' : 'btn btn-amber';
     }
     const reports = g.reports ? Object.values(g.reports) : [];
+    const playerEntries = Object.entries(players);
+    const livesSection = (g.state === 'playing' && playerEntries.length) ? `
+      <div class="label" style="margin-top:12px;">Player lives</div>
+      ${playerEntries.map(([pid, p]) => `
+        <div style="display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:0.5px solid var(--border);">
+          <div style="width:9px; height:9px; border-radius:50%; background:${p.color||'#999'}; flex-shrink:0;"></div>
+          <div style="flex:1; font-size:13px; ${p.alive===false?'color:var(--muted); text-decoration:line-through;':''}">${p.name}</div>
+          <button class="btn btn-ghost" style="width:auto; padding:4px 12px; font-size:14px;" onclick="adminAdjustLives('${pid}',-1)">−</button>
+          <button class="btn btn-ghost" style="width:auto; padding:4px 12px; font-size:14px;" onclick="adminAdjustLives('${pid}',1)">+</button>
+        </div>
+      `).join('')}
+    ` : '';
     el.innerHTML = `
       <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:14px;"><span>State</span><span>${g.paused?'⏸ paused':g.state||'lobby'}</span></div>
       <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:14px;"><span>Players</span><span>${Object.keys(players).length}</span></div>
       <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:14px;"><span>Voting</span><span>${g.votingActive?'Yes':'No'}</span></div>
       <div style="display:flex;justify-content:space-between;padding:8px 0;font-size:14px;"><span>Reports</span><span style="color:${reports.length?'var(--imp)':'var(--muted)'};">${reports.length}</span></div>
-    ` + (reports.length ? `<div class="label" style="margin-top:12px;">Player reports</div>` + reports.map(r => `
+    ` + livesSection + (reports.length ? `<div class="label" style="margin-top:12px;">Player reports</div>` + reports.map(r => `
       <div style="background:var(--bg3); border-radius:var(--radius-sm); padding:10px; margin-bottom:8px; font-size:13px;">
         <div style="font-weight:600; color:var(--imp);">${r.reportedName}</div>
         <div style="color:var(--muted); margin:2px 0;">Reported by ${r.reportedByName}</div>
         <div>${r.reason}</div>
       </div>`).join('') : '');
+  }
+
+  window.adminAdjustLives = async function(pid, delta) {
+    if (!isAdmin) return;
+    const pSnap = await get(ref(db, GAME_REF + '/players/' + pid));
+    const p = pSnap.exists() ? pSnap.val() : {};
+    const current = p.lives ?? (settings.lives || 2);
+    const next = Math.max(0, current + delta);
+    const updates = { [GAME_REF+'/players/'+pid+'/lives']: next };
+    if (next === 0 && current > 0) {
+      // Lives hit zero — eliminate the player
+      updates[GAME_REF+'/players/'+pid+'/alive'] = false;
+      updates[GAME_REF+'/players/'+pid+'/temporarilyDead'] = false;
+      updates[GAME_REF+'/players/'+pid+'/pendingKill'] = false;
+    } else if (current === 0 && next > 0) {
+      // Was dead, now has a life again — bring them back
+      updates[GAME_REF+'/players/'+pid+'/alive'] = true;
+      updates[GAME_REF+'/players/'+pid+'/temporarilyDead'] = false;
+      updates[GAME_REF+'/players/'+pid+'/pendingKill'] = false;
+    }
+    await update(ref(db), updates);
+    checkWinConditions();
+    loadAdminGameState();
   }
 
   window.showAddMission = async function() {
